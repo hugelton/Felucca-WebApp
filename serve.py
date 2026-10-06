@@ -19,10 +19,15 @@ class NoCache(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
 
+class Server(http.server.ThreadingHTTPServer):
+    request_queue_size = 128          # a page loads ~20 modules at once: the default backlog (5) dropped some (connection reset)
+    daemon_threads = True
+
+
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8766
     handler = partial(NoCache, directory=str(Path(__file__).resolve().parent))
-    with http.server.ThreadingHTTPServer(("127.0.0.1", port), handler) as srv:
+    with Server(("127.0.0.1", port), handler) as srv:
         print(f"http://localhost:{port}/app/index.html?mock=1")
         srv.serve_forever()
 
