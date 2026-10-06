@@ -28,6 +28,10 @@ const TEXT = {
     import: "Import", exportAll: "Export all", memoryOnly: "NOT SAVED", store: "Store", toLibrary: "To library", erase: "Erase",
     ok: "OK", cancel: "Cancel",
     saved: "Saved", save: "Save", restore: "Restore", restored: "Restored", backupSaved: "Backup saved", tooLarge: "too large",
+    sent: "Sent", fromTrack: "From track", toTrack: "To track", voices: "voices",
+    fm6BadSum: "a checksum was wrong", fm6Short: "some data was cut short", fm6NoVoice: "no 6-operator voices",
+    fm6NotSysex: "not a SysEx file", fm6Is4op: "4-operator voices", fm6OtherBlocks: "no voices (other data of the format)",
+    fm6OtherMaker: "another manufacturer's SysEx", fm6Universal: "universal SysEx",
     files: "Files", recInput: "Input", recFull: "The slot is full", recDenied: "No input:", recSilent: "Nothing came in",
   },
   ja: {
@@ -51,6 +55,10 @@ const TEXT = {
     import: "取り込み", exportAll: "全部書き出し", memoryOnly: "保存されません", store: "保存", toLibrary: "ライブラリへ", erase: "消去",
     ok: "OK", cancel: "やめる",
     saved: "保存済み", save: "保存", restore: "復元", restored: "復元しました", backupSaved: "バックアップを保存しました", tooLarge: "大きすぎます",
+    sent: "送りました", fromTrack: "トラックから", toTrack: "トラックへ", voices: "音色",
+    fm6BadSum: "チェックサムの違いあり", fm6Short: "途中で切れたデータあり", fm6NoVoice: "6 オペレーターの音色なし",
+    fm6NotSysex: "SysEx ではありません", fm6Is4op: "4 オペレーターの音色です", fm6OtherBlocks: "音色なし（同じ形式のほかのデータ）",
+    fm6OtherMaker: "ほかのメーカーの SysEx", fm6Universal: "ユニバーサル SysEx",
     files: "ファイル", recInput: "入力", recFull: "スロットがいっぱいです", recDenied: "入力が使えません:", recSilent: "音が入っていません",
   },
 };

@@ -7,6 +7,7 @@
 :root { --k: 1; --r: 6px; --r-s: 4px; --gap: 12px; --rail: 76px; --bar: 32px; --nav: 56px; }
 html { font-size: calc(16px * var(--k)); }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }      /* (over any display a class sets) */
 body {
   margin: 0; background: var(--bg); color: var(--text);
   font: 400 .875rem/1.4 "Inter Tight", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
@@ -349,3 +350,12 @@ input.text.num { width: 6.5em; min-height: 32px; background: var(--surf); }
 .songrow.at .n { color: var(--accent); }
 .songrow.at .pick b { color: var(--accent); }
 .slot .acts { flex-wrap: wrap; }
+
+/* ---- 6-OP ---- */
+.card h3.sub { margin: 12px 0 6px; font-size: .6875rem; font-weight: 600; letter-spacing: .06em; color: var(--mid); }
+.rows.two { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.opcells { margin-bottom: 10px; }
+.opcells .cells { grid-auto-columns: minmax(0, 1fr); }
+.opgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: var(--gap); }
+.freq { color: var(--theme); font-weight: 500; letter-spacing: 0; text-transform: none; }
+.list.voices { max-height: 240px; margin-top: 8px; }

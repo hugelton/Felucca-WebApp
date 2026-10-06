@@ -6,7 +6,8 @@
 // change in place (a row the user holds is left alone).
 
 import { aliasOf, engineOrder } from "./proto.js";
-import { ENGINE_IC, el, ic } from "./dom.js";
+import { ENGINE_IC, el, ic, store } from "./dom.js";
+import { fm6Screen } from "./fm6.js";
 import { G_SKIP, HEAD_IC, LAYOUT, paramIcon, visible } from "./layout.js";
 import { card, cells, paramRow } from "./parts.js";
 import { knownLayout } from "./device.js";
@@ -123,6 +124,11 @@ export function soundScreen(root, ui) {
   }
   function redraw(s, id) { if (s) return; if (id >= 1 && id <= 4) drawEnv(); else if (id === 9 || id === 10) drawLfo(); }
 
+  /* an FM6 track: PARAMETERS (the device's macros, as on the device) or 6-OP (the whole patch) */
+  const TAB_KEY = "felucca-editor-soundtab";
+  const fm6Box = el("div");
+  const fm6 = fm6Screen(fm6Box, ui);
+  let tab = store.get(TAB_KEY) === "6op" ? 1 : 0;
   function build(device) {
     dev = device;
     rows.clear(); viz = {};
@@ -135,7 +141,14 @@ export function soundScreen(root, ui) {
       for (let i = 0; i < dev.info.pcount; i++) { const r = row(0, i); if (r) all.append(r); }
       grid.append(card("PARAMETERS", "ui_knob", all));
     }
-    root.replaceChildren(grid);
+    if (dev.engineName() === "FM6" && dev.fm6Ok()) {
+      const show = (i) => { tab = i; store.set(TAB_KEY, i ? "6op" : "params"); grid.hidden = !!i; fm6Box.hidden = !i; if (i) fm6.show(dev); else fm6.leave(); };
+      root.replaceChildren(el("div", { class: "subtabs" }, cells(["PARAMETERS", "6-OP"], tab, show, "FM6").el), grid, fm6Box);
+      show(tab);
+    } else {
+      fm6.leave();
+      root.replaceChildren(grid);
+    }
     drawEnv(); drawLfo();
     built = signature();
   }

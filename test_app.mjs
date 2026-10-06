@@ -387,6 +387,32 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   ok(/no Felucca loader/.test(site("vendor.fwsc", "s4", "--licences", fwlic)), "site: a package without Felucca's loader is refused");
 }
 
+
+/* ------------------------------------------------------------------ 6-OP --- */
+{
+  const m = proto.makeMockDevice({ auto: false });
+  const d = new Device(m.access);
+  await d.open();
+  const t = m.state.tracks.findIndex((x) => m.tables.ENG[x.engine].name === "FM6");
+  ok(d.fm6Ok() && t >= 0, "6-OP: the device has FM6 (INFO 46), a track plays it");
+  const pk = await d.fm6Read(t);
+  ok(pk && pk.length === 128 && pk.join() === m.state.tracks[t].fm6.join(), "6-OP: a track's patch (FM6_GET target TRACK)");
+  const f3 = await d.fm6Factory(2);
+  ok(f3 && f3.join() === proto.FM6.FACTORY_PK[2].join(), "6-OP: a factory patch (FM6_GET target FACTORY)");
+  const v = proto.FM6.unpack(f3);
+  v[proto.FM6.VI.ALG] = 4; v[proto.FM6.at(1, "OL")] = 33;
+  ok(await d.fm6Send(t, proto.FM6.pack(v)), "6-OP: a patch to a track (FM6_PUT target TRACK)");
+  const back = proto.FM6.unpack(await d.fm6Read(t));
+  ok(back[proto.FM6.VI.ALG] === 4 && back[proto.FM6.at(1, "OL")] === 33, "6-OP: .. the track holds it");
+  const fails = [];
+  d.on("error", (e) => fails.push(e));
+  ok((await d.fm6Send(t, new Array(127).fill(0))) === false && fails.length === 1, "6-OP: a record that is not 128 bytes is refused");
+  /* a .syx file round trip: the voice the page exports reads back as itself */
+  const r = proto.FM6.parseSysex(Uint8Array.from(proto.FM6.singleSysex(back)));
+  ok(r.voices.length === 1 && proto.FM6.pack(r.voices[0].v).join() === proto.FM6.pack(back).join(), "6-OP: an exported voice imports as itself");
+  d.close();
+}
+
 /* ------------------------------------------------------------- bundle.py --- */
 {
   const dir = mkdtempSync(join(tmpdir(), "felucca-bundle-"));

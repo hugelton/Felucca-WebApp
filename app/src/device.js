@@ -7,7 +7,7 @@
 // The behaviour is editor.html's (connect, load, onPush, keepAlive, the 400 ms poll, selfLoad), moved here.
 
 import { captureBackup, readBackup, restoreBackup } from "../../fm1backup.js";
-import { CMD, F, FLASH_OPT, Link, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
+import { CMD, F, FLASH_OPT, FM6, Link, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
 
 export const isFelucca = (p) => /felucca/i.test(p.name || "") && p.state !== "disconnected";
 export const P = { LEVEL: 0, SLEN: 29 };
@@ -462,6 +462,33 @@ export class Device {
       this.emit("reload", this);
       return true;
     });
+  }
+
+  /* ---- FM6 patches (INFO 46): a track's own patch, the factory ones; 128-byte packed records ---- */
+  fm6Ok() { return !!(this.info && this.info.fm6); }
+  /* track k's patch -> packed (null: refused) */
+  fm6Read(k) {
+    return this.op(async () => {
+      const r = parse[CMD.FM6_GET](await this.rq(req.fm6Get(FM6.TARGET.TRACK, k)));
+      if (r.rc) { const e = new Error(`fm6 rc ${r.rc}`); e.code = "fm6"; e.rc = r.rc; throw e; }
+      return r.packed;
+    });
+  }
+  /* factory patch i (F1..) -> packed */
+  fm6Factory(i) {
+    return this.op(async () => {
+      const r = parse[CMD.FM6_GET](await this.rq(req.fm6Get(FM6.TARGET.FACTORY, i)));
+      if (r.rc) { const e = new Error(`fm6 rc ${r.rc}`); e.code = "fm6"; e.rc = r.rc; throw e; }
+      return r.packed;
+    });
+  }
+  /* packed -> track k (the track keeps it: SLOT OWN). Coalesced: a live edit sends only the latest */
+  async fm6Send(k, packed) {
+    try {
+      const r = parse[CMD.FM6_PUT](await this.rq(req.fm6Put(FM6.TARGET.TRACK, k, packed), { key: "fm6put:" + k }));
+      if (r.rc) { const e = new Error(`fm6 rc ${r.rc}`); e.code = "fm6"; e.rc = r.rc; throw e; }
+      return true;
+    } catch (e) { if (e.message !== "closed") this.emit("error", e); return false; }
   }
 
   /* ---- user sample slots (SMP_*) ---- */
