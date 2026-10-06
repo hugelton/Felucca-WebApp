@@ -369,3 +369,5 @@ a.iconbtn { text-decoration: none; }
 .strip.muted .vgauge .v { color: var(--dim); }
 @media (max-width: 640px) { .vgauge { height: 160px; } }
 @media (max-width: 400px) { #store-t { display: none; } .store .bar { width: 48px; } }   /* (the dialog has the numbers) */
+.chip.upd { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; text-decoration: none; background: var(--accent); color: var(--ink); }
+@media (max-width: 640px) { #update-t { display: none; } }

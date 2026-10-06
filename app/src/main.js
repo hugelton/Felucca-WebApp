@@ -18,6 +18,7 @@ import { projectScreen } from "./project.js";
 import { cells } from "./parts.js";
 import { applyEditorPrefs, settingsScreen } from "./settings.js";
 import { t } from "./text.js";
+import { advice } from "./version.js";
 
 const QS = new URLSearchParams(location.search);
 const MOCK = QS.get("mock") === "1";
@@ -196,6 +197,16 @@ function drawStore() {
     ...(s.fm6 ? [row(t("fm6bank"), `${s.fm6[0]} / ${s.fm6[1]}`, s.fm6[0] / s.fm6[1])] : []));
 }
 
+/* ---- the firmware: older than this editor is for -> the classic editor or an update; older than the release -> update ---- */
+const RELEASE = (document.querySelector('meta[name="felucca-release"]') || {}).content || "";
+function offer(d) {
+  const a = advice(d.info.version, RELEASE), ver = (d.info.version.match(/\d+\.\d+(\.\d+)?/) || [""])[0];
+  $("#update").hidden = !(a === "update" || a === "classic") || !RELEASE;
+  $("#update-t").textContent = `${t("update").toUpperCase()} v${RELEASE}`;
+  if (a === "classic") { $("#of-t").textContent = `FELUCCA v${ver}`; $("#oldfw").showModal(); $("#of-go").focus(); }
+}
+$("#of-go").onclick = () => $("#oldfw").close();
+
 /* ---- the connection ---- */
 async function connect() {
   if (connecting || dev) return;
@@ -229,10 +240,11 @@ async function connect() {
     d.on("projects", () => project.refresh());
     d.on("song", () => project.refresh());
     d.on("error", (e) => sayK(e.message === "noreply" ? "noreply" : "error", e.message === "noreply" ? "" : e.message));
-    d.on("closed", (reason) => { if (dev === d) { dev = null; renderAll(); relabel(); sayK(reason); } });
+    d.on("closed", (reason) => { if (dev === d) { dev = null; $("#update").hidden = true; renderAll(); relabel(); sayK(reason); } });
     await d.open();
     if (dev !== d) return;
     await lib.adopt(d);
+    offer(d);
     renderAll();
     sayK("ready", d.info.version);
   } catch (e) {

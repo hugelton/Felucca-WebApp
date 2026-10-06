@@ -389,6 +389,7 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   const ed = readFileSync(join(s1, "webapp/editor/index.html"), "utf8");
   ok(!/<script[^>]+src=/.test(ed) && !/<link rel="stylesheet"/.test(ed) && ed.includes("felucca-editor") && ed.includes("async function captureBackup"),
     "site: webapp/editor is the new editor in one page (modules, stylesheets, the backup inlined)");
+  ok(ed.includes('<meta name="felucca-release" content="1.0.3">'), "site: the editor knows the release it ships with (its update notice)");
   const fonts = ["FUKIAI-LICENSE.txt", "InterTight-subset.ttf", "OFL.txt", "fukiai.ttf"];
   ok(fonts.every((f) => existsSync(join(s1, "webapp/editor/fonts", f)) && !lstatSync(join(s1, "webapp/editor/fonts", f)).isSymbolicLink())
      && readFileSync(join(s1, "webapp/editor/fonts/fukiai.ttf")).length === readFileSync(join(HERE, "fukiai.ttf")).length,
@@ -487,6 +488,18 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
        && left.every((l) => ["SLOT", "NAME", "LOAD", "SAVE", "ENG", "SET", "CLRSQ", "INIT", "SYNC", "CPU", "-"].includes(l)),
       "settings: only the firmware's actions and placeholders are left out (desc.json)");
   } else console.log("settings: every firmware global shown (no FELUCCA_DESC)                skip");
+}
+
+
+/* ------------------------------------------------------------- versions --- */
+{
+  const { parseVersion, cmpVersion, advice } = await import("./app/src/version.js");
+  ok(parseVersion("FELUCCA v1.0.3").join() === "1,0,3" && parseVersion("FELUCCA 0.9 BETA").join() === "0,9,0" && parseVersion("FELUCCA v1.0 (MOCK)").join() === "1,0,0"
+     && parseVersion("nothing") === null, "versions: read from INFO's string");
+  ok(cmpVersion("1.0.2", "1.0.3") === -1 && cmpVersion("1.0.10", "1.0.9") === 1 && cmpVersion("v1.0", "1.0.0") === 0, "versions: compared by number");
+  ok(advice("FELUCCA 0.9 BETA", "1.0.3") === "classic" && advice("FELUCCA 0.4 BETA (MOCK)", "") === "classic", "versions: before 1.0 -> the classic editor (or an update)");
+  ok(advice("FELUCCA v1.0.2", "1.0.3") === "update" && advice("FELUCCA v1.0.3", "1.0.3") === "" && advice("FELUCCA v1.0.4", "1.0.3") === ""
+     && advice("FELUCCA v1.0.2", "") === "", "versions: older than the site's release -> update; no release (a local page): nothing");
 }
 
 /* ------------------------------------------------------------- bundle.py --- */

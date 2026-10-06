@@ -80,6 +80,10 @@ def main(pkg, version, out, licences=None):
     html = html.replace("/*LIB*/", lib).replace("/*META*/", meta).replace("/*TOKENS*/", tokens)
     inst, ed, cl, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "webapp" / "editor-classic", out / "firmware"
     editor = bundle_page(HERE / "app" / "index.html")   # (before anything is written: a module the bundler refuses stops here)
+    rel = '<meta name="felucca-release" content="">'
+    if editor.count(rel) != 1:
+        raise SystemExit("app/index.html must have the felucca-release meta once; update make_site.py")
+    editor = editor.replace(rel, f'<meta name="felucca-release" content="{re.sub(r"[^0-9A-Za-z.-]", "", version)}">')   # (its update notice)
     for d in (inst, ed, cl, fw):
         d.mkdir(parents=True, exist_ok=True)
     for old in fw.glob("felucca-*.fwsc"):          # one package: the current one

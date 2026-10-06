@@ -8,6 +8,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Felucca Editor</title>
 <link rel="icon" href="data:,">
+<meta name="felucca-release" content="">
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="app.css">
 </head>
@@ -18,6 +19,7 @@
       <button type="button" class="btn primary" id="connect"><span data-i="port_usb_c"></span><span data-t="connect"></span></button>
       <span class="state" id="state"><span class="dot" id="state-dot"></span><span id="state-t"></span></span>
     </div>
+    <a class="chip upd" id="update" href="../installer/" hidden><span data-i="symbol_upload"></span><span id="update-t"></span></a>
     <button type="button" class="store" id="store" aria-haspopup="dialog" hidden>
       <span class="lbl" data-t="flash"></span><span class="bar" aria-hidden="true"><i id="store-bar"></i></span><span id="store-t"></span>
     </button>
@@ -56,6 +58,10 @@
   <h3 id="ak-t"></h3>
   <form method="dialog" id="ak-f"><input class="text wide" id="ak-v" type="text" spellcheck="false" maxlength="32" aria-labelledby="ak-t">
   <div class="acts"><button type="button" class="btn" id="ak-no" data-t="cancel"></button><button type="submit" class="btn primary" id="ak-yes" data-t="ok"></button></div></form>
+</dialog>
+<dialog id="oldfw" aria-labelledby="of-t">
+  <h3 id="of-t"></h3>
+  <div class="acts"><button type="button" class="btn" id="of-go" data-t="continue"></button><a class="btn" href="../installer/" data-t="update"></a><a class="btn primary" href="../editor-classic/" data-t="classic"></a></div>
 </dialog>
 <dialog id="storage" aria-labelledby="sg-t">
   <h3 id="sg-t" data-t="flash"></h3>
