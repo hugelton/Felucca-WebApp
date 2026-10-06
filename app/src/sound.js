@@ -30,11 +30,12 @@ export function soundScreen(root, ui) {
     return e && visible(e) ? e.label : x;
   } : null);
 
+  const engineAt = (k) => { const id = dev.info.pe0 + k, e = dev.pdesc[id]; return visible(e) ? { desc: e, value: dev.dump.p[id] } : null; };
   function row(s, id) {
     const d = desc(s, id);
     if (!visible(d) || (s === 1 && G_SKIP.has(d.label))) return null;
     const r = paramRow(d, value(s, id), (v) => { dev.setParam(s, id, v); redraw(s, id); ui.changed(s, id, v); },
-      { icon: (v) => paramIcon(d, v), rename: modDst(d) });
+      { icon: (v) => paramIcon(d, v, engineAt), rename: modDst(d) });
     rows.set(key(s, id), r);
     return r.el;
   }

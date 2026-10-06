@@ -5,7 +5,7 @@
 // known one (device.js knownLayout); otherwise every parameter is listed in id order. And the icons by label.
 
 import { P_CHORD } from "./proto.js";
-import { BY_LABEL, BY_WAVE, SPECIAL } from "./paramicons.js";
+import { BY_LABEL, BY_WAVE, MOD_DST, MOD_SRC, SPECIAL } from "./paramicons.js";
 
 /* group: {t: title, place, pages: [[title, scope, ids]]} or {t, mod: first id} (the matrix, 4 rows of SRC DST AMT);
    engine: true = the engine's EDIT pages (page titles from NAMES) */
@@ -34,12 +34,20 @@ export const HEAD_IC = { ENV: "function_env_adsr_exp", LFO: "waveform_sine", MOD
   FX: "symbol_effector", SCL: "control_arow_scale", ARP: "control_arrow_loop", PATTERN: "symbol_grid", GLOBAL: "symbol_cog", "OP ENV": "function_env_adsr_lin" };
 
 /* a parameter's icon, as the device's param_icon() (felucca/src/icons.c; the table: paramicons.js, gen_icons.py):
-   WAVE / WAVE2 by the shape set, then the parameters whose label means something else there, then by label */
+   WAVE / WAVE2 by the shape set, the MOD matrix by its value (engine(k): the engine's k-th parameter's desc and
+   value, for a destination E1..E8), then the parameters whose label means something else there, then by label */
 const same = (a, b) => !!a && a.length === b.length && b.every((x, i) => a[i] === x);
-export function paramIcon(d, v) {
+export function paramIcon(d, v, engine) {
   if (!d) return null;
   if (typeof d === "string") return BY_LABEL[d] || SPECIAL.ICON_GENERIC || null;
   const n = d.names || [];
+  if (/^SRC\d$/.test(d.label) && v != null) return MOD_SRC[Math.max(0, Math.min(MOD_SRC.length - 1, v - d.min))];
+  if (/^AMT\d$/.test(d.label)) return MOD_SRC[0];                                  /* (the mod icon) */
+  if (/^DST\d$/.test(d.label) && v != null) {
+    const k = v - d.min, m = /^E([1-8])$/.exec(n[k] || "");
+    if (m) { const e = engine && engine(+m[1] - 1); return e ? paramIcon(e.desc, e.value) : MOD_SRC[0]; }
+    return MOD_DST[Math.max(0, Math.min(MOD_DST.length - 1, k))];
+  }
   if ((d.label === "WAVE" || d.label === "WAVE2") && n.length && v != null && BY_WAVE[n[v - d.min]]) return BY_WAVE[n[v - d.min]];
   if (d.scope === 0 && d.id === 10) return SPECIAL.ICON_LFO_WAVE;                 /* the LFO's WAVE (also the oscillator's) */
   if (d.scope === 0 && (d.id === 18 || d.id === 47)) return SPECIAL.ICON_DIVISION; /* arp / SLICER RATE: a note division */

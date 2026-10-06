@@ -182,3 +182,6 @@ export const SPECIAL = {
   "ICON_ORDER": "symbol_sort",
   "ICON_GENERIC": "ui_knob",
 };
+/* the MOD matrix: a source's icon by its value, a destination's (before E1..E8: those are the engine's own) */
+export const MOD_SRC = ["symbol_modular", "waveform_sine", "function_env_adsr_lin", "symbol_thunder_f", "symbol_keyboard", "symbol_dice", "symbol_modular", "port_midi", "symbol_volume"];
+export const MOD_DST = ["symbol_modular", "waveform_pitch", "function_filter_lpf", "waveform_variant_four", "symbol_volume", "symbol_pan", "function_signal_clip", "symbol_waves", "symbol_echo", "symbol_spring", "symbol_speed", "waveform_cos"];

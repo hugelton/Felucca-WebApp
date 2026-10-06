@@ -575,6 +575,13 @@ else console.log("icons: from the firmware's icons.c (no FELUCCA_FIRMWARE)      
     && paramIcon(D({ label: "MODE", names: ["ANLG", "DUST", "LFSR", "META"] })) === SPECIAL.ICON_NOISE
     && paramIcon(D({ label: "CLK", fmt: 0, names: [] })) === SPECIAL.ICON_RATE && paramIcon(D({ label: "CLK", scope: 1 })) === BY_LABEL.CLK,
     "icons: TRIO's and NOISE's MODE, NOISE's CLK (not the global CLK)");
+  const { MOD_SRC, MOD_DST } = await import("./app/src/paramicons.js");
+  const dst = D({ label: "DST1", id: 50, max: 13, names: ["OFF", "PIT", "FLT", "SHP", "LVL", "PAN", "DRV", "CHO", "DLY", "REV", "RATE", "VIB", "E1", "E2"] });
+  const cut = { desc: D({ label: "CUT", id: 61, fmt: 0, max: 127 }), value: 64 };
+  ok(MOD_SRC.length === 9 && MOD_DST.length === 12 && paramIcon(D({ label: "SRC1", id: 49, max: 8 }), 1) === MOD_SRC[1]
+    && paramIcon(dst, 2) === MOD_DST[2] && paramIcon(dst, 12, (k) => (k === 0 ? cut : null)) === BY_LABEL.CUT
+    && paramIcon(D({ label: "AMT1", id: 51, fmt: 0 }), 10) === MOD_SRC[0],
+    "icons: the MOD matrix by its value (a destination E1..E8: that engine parameter's own)");
 }
 {
   /* felucca/web stands alone: no link in app/ points outside it; the licences beside the fonts are files of their own */
