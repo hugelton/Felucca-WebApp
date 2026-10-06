@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 //
 // SEQ: the selected track's steps, 16 a page (as the device's keys), the step under the cursor in detail, the
-// pattern (LEN DIV SWG GATE) and MOTION. A DRUM track shows its 8 lanes as a grid; every other engine its notes.
+// pattern (LEN DIV SWG GATE) and AUTOMATION (MOTION in the protocol). A DRUM track shows its 8 lanes as a grid; every other engine its notes.
 // Arrows move the cursor, Space turns a step (a hit, on the grid) on or off, Enter goes to the step's notes.
 
 import { F, LANES, noteName, parseNotes } from "./proto.js";
@@ -172,11 +172,11 @@ export function seqScreen(root, ui) {
         el("button", { type: "button", class: "iconbtn", "aria-label": `${d ? d.label : e.param} ×`, onclick: () => dev.motionOp(4, e) }, ic("symbol_trash")));
     });
     const can = MOTION_IDS.filter((id) => visible(dev.pdesc[id]) && !evs.some((e) => e.param === id));
-    const pick = el("select", { "aria-label": "MOTION" }, ...can.map((id) => el("option", { value: id, text: dev.pdesc[id].label + (id >= dev.info.pe0 ? " · " + dev.engineName() : "") })));
+    const pick = el("select", { "aria-label": "AUTOMATION" }, ...can.map((id) => el("option", { value: id, text: dev.pdesc[id].label + (id >= dev.info.pe0 ? " · " + dev.engineName() : "") })));
     const add = el("button", { type: "button", class: "btn", disabled: !can.length || m.count >= m.max,
       onclick: () => { const id = +pick.value; dev.motionOp(3, { step: cur, param: id, value: dev.dump.p[id] }); } }, ic("control_add"), `${t("steps")} ${cur + 1}`);
     motionBox.body.replaceChildren(
-      el("div", { class: "enum" }, el("span", { class: "lbl", text: "PLAY" }), cells(["OFF", "ON"], m.on ? 1 : 0, (i) => dev.motionOp(1, { on: !!i }), "MOTION").el),
+      el("div", { class: "enum" }, el("span", { class: "lbl", text: "PLAY" }), cells(["OFF", "ON"], m.on ? 1 : 0, (i) => dev.motionOp(1, { on: !!i }), "AUTOMATION").el),
       el("div", { class: "steps-mini" + (per() === 8 ? " n8" : ""), "aria-hidden": "true" }, ...Array.from({ length: per() }, (_, i) => {
         const k = bank * per() + i, n = m.events.filter((e) => e.step === k).length;
         return el("span", { class: (n ? "on" : "") + (k === cur ? " at" : "") });
@@ -184,7 +184,7 @@ export function seqScreen(root, ui) {
       el("div", { class: "rows" }, ...rows),
       el("div", { class: "addrow" }, el("label", { class: "pick sel" }, el("span", { class: "lbl", text: can.length ? dev.pdesc[can[0]].label : "—" }), pick), add),
       el("div", { class: "acts" }, el("button", { type: "button", class: "btn", disabled: !m.count,
-        onclick: async () => { if (await ui.confirm("CLEAR MOTION?")) dev.motionOp(2); } }, ic("symbol_trash"), "CLEAR")));
+        onclick: async () => { if (await ui.confirm("CLEAR AUTOMATION?")) dev.motionOp(2); } }, ic("symbol_trash"), "CLEAR")));
     pick.addEventListener("change", () => { pick.previousElementSibling.textContent = dev.pdesc[+pick.value].label; });
   }
 
@@ -228,7 +228,7 @@ export function seqScreen(root, ui) {
     const dc = card(`${t("steps")} ${cur + 1}`, "symbol_pencil");
     detail = { card: dc, body: el("div", { class: "rows" }) };
     dc.append(detail.body);
-    const mc = card("MOTION", "symbol_motion");
+    const mc = card("AUTOMATION", "symbol_motion");
     motionBox = { card: mc, body: el("div", { class: "rows" }) };
     mc.append(motionBox.body);
     const pc = patternCard();
