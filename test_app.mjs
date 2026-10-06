@@ -8,7 +8,7 @@
 // The protocol section itself is checked by test_web.mjs (FELUCCA_PROTO=app runs it against app/src/proto.js).
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import vm from "node:vm";
@@ -374,13 +374,28 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   };
   ok(site("ok.fwsc", "s1", "--licences", fwlic) === "", "site: make_site.py builds with the firmware's licences (--licences)");
   const s1 = join(dir, "s1"), inst = readFileSync(join(s1, "webapp/installer/index.html"), "utf8");
-  ok(!inst.includes("/*LIB*/") && !inst.includes("/*META*/") && inst.includes('"product": "FM-1_903"') && inst.includes("../../firmware/felucca-1.0.3.fwsc"),
-    "site: the installer, its libraries and the package's metadata inlined");
+  ok(!inst.includes("/*LIB*/") && !inst.includes("/*META*/") && !inst.includes("/*TOKENS*/") && inst.includes('"product": "FM-1_903"')
+     && inst.includes("../../firmware/felucca-1.0.3.fwsc") && inst.includes(readFileSync(join(APP, "tokens.css"), "utf8")),
+    "site: the installer, its libraries, the package's metadata and the colour tokens inlined");
+  ok(/url\("\.\.\/editor\/fonts\/InterTight-subset\.ttf"\)/.test(inst) && existsSync(join(s1, "webapp/editor/fonts/InterTight-subset.ttf")),
+    "site: the installer's font is the editor's, beside it");
+  const pkgHtml = readFileSync(join(HERE, "index_pkg.html"), "utf8");
+  const ids = ["lang", "go", "stock-file", "stock-go", "stock-recovery", "bar", "status", "log"];
+  ok(ids.every((id) => pkgHtml.includes(`id="${id}"`)) && !/#[0-9a-f]{3,6}\b/i.test(pkgHtml.slice(pkgHtml.indexOf("<style>"), pkgHtml.indexOf("</style>"))),
+    "site: the installer keeps every element its script uses; no colour outside the tokens");
   ok(existsSync(join(s1, "firmware/felucca-1.0.3.fwsc")) && readFileSync(join(s1, "firmware/LICENSING.md"), "utf8") === "# fw\n"
      && readdirSync(join(s1, "firmware/LICENSES")).sort().join() === "Apache-2.0.txt,MIT-X.txt,index.html",
     "site: the package with the firmware's LICENSE, LICENSING.md, LICENSES/ (not the web app's)");
-  ok(["index.html", "fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"].every((f) => existsSync(join(s1, "webapp/editor", f)))
-     && /url=webapp\/installer\//.test(readFileSync(join(s1, "index.html"), "utf8")), "site: the editor with its font and licence, the redirect");
+  const ed = readFileSync(join(s1, "webapp/editor/index.html"), "utf8");
+  ok(!/<script[^>]+src=/.test(ed) && !/<link rel="stylesheet"/.test(ed) && ed.includes("felucca-editor") && ed.includes("async function captureBackup"),
+    "site: webapp/editor is the new editor in one page (modules, stylesheets, the backup inlined)");
+  const fonts = ["FUKIAI-LICENSE.txt", "InterTight-subset.ttf", "OFL.txt", "fukiai.ttf"];
+  ok(fonts.every((f) => existsSync(join(s1, "webapp/editor/fonts", f)) && !lstatSync(join(s1, "webapp/editor/fonts", f)).isSymbolicLink())
+     && readFileSync(join(s1, "webapp/editor/fonts/fukiai.ttf")).length === readFileSync(join(HERE, "fukiai.ttf")).length,
+    "site: .. its fonts and their licences in fonts/ (files, not links)");
+  ok(["index.html", "fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"].every((f) => existsSync(join(s1, "webapp/editor-classic", f)))
+     && readFileSync(join(s1, "webapp/editor-classic/index.html"), "utf8") === readFileSync(join(HERE, "editor.html"), "utf8")
+     && /url=webapp\/installer\//.test(readFileSync(join(s1, "index.html"), "utf8")), "site: the classic editor beside it (its font, licence, backup), the redirect");
   const nolic = site("ok.fwsc", "s2", "--licences", join(dir, "nowhere"));
   ok(/no firmware licence files/.test(nolic) && !existsSync(join(dir, "s2")), "site: no licence files: refused before anything is written");
   ok(/not a Felucca package/.test(site("stock.fwsc", "s3", "--licences", fwlic)), "site: an official package (FM-1_015) is refused");
@@ -411,6 +426,49 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   const r = proto.FM6.parseSysex(Uint8Array.from(proto.FM6.singleSysex(back)));
   ok(r.voices.length === 1 && proto.FM6.pack(r.voices[0].v).join() === proto.FM6.pack(back).join(), "6-OP: an exported voice imports as itself");
   d.close();
+}
+
+
+/* ------------------------------------------------- features: the old editor's, all in the new --- */
+{
+  /* every feature of editor.html (its audit), with where the new editor has it: [id, what, file, the code that does it] */
+  const F = [
+    ["connect", "connect, read everything, reconnect when the port comes back", "main.js", ["function onPortState", "connect()", "await d.open()"]],
+    ["mock", "?mock=1 (and &legacy=1): a simulated device", "main.js", ["makeMockDevice({ legacy"]],
+    ["live", "live sync: pushes, PING, WATCH again after a gap", "device.js", ["onPush(f)", "keepAlive()", "req.ping()", "visible()"]],
+    ["poll", "polling on firmware without pushes", "device.js", ["async poll()"]],
+    ["track", "select a track", "device.js", ["selectTrack(k)"]],
+    ["preset", "engine and preset, prev / next", "sound.js", ["dev.loadPreset(", "step(-1)", "step(1)"]],
+    ["init", "init sound", "sound.js", ["dev.initSound()"]],
+    ["params", "every parameter in the device's groups, unknown layouts in id order", "layout.js", ['t: "ENV"', 't: "LFO"', 't: "EDIT"', 't: "MOD"', 't: "VOICE"', 't: "FX"', 't: "SCL"', 't: "ARP"']],
+    ["fm6", "6-operator patch: read, send, live, import / export SysEx, factory patches, init", "fm6.js", ["dev.fm6Read(", "dev.fm6Send(", "LIVE", "parseSysex(", "singleSysex(", "dev.fm6Factory(", "FM6.init()"]],
+    ["pattern", "LEN DIV SWG GATE", "layout.js", ['t: "PATTERN", place: "seq"']],
+    ["steps", "steps: notes (chords), time, accent, slide, velocity, chance", "seq.js", ["parseNotes(", "TIMES", '"ACC"', '"SLD"', '"VEL"', '"CHANCE"']],
+    ["grid", "the drum grid: hits and accents", "seq.js", ["laneToggled(", '["HIT", "ACC"]']],
+    ["steps-io", "reload the steps, clear the sequence", "seq.js", ["dev.reloadSteps()", "dev.clearSequence()"]],
+    ["motion", "motion: play, clear, edit, remove (and add)", "seq.js", ["dev.motionOp(1", "dev.motionOp(2)", "dev.motionOp(3", "dev.motionOp(4"]],
+    ["mixer", "level, mute, pan of every track (and REV)", "mix.js", ["dev.setMix(", 'setTrackParam(k, "pan"', 'setTrackParam(k, "rev"']],
+    ["presets", "the device's presets: ALL / FAV, stars, load", "libview.js", ["devicePresetRows(", "dev.favorite(", "dev.changePreference(3"]],
+    ["factory-lib", "a factory preset to the library", "libview.js", ["dev.captureFactory("]],
+    ["library", "the library: search, engine / tag, sort, audition, rename, tags, duplicate, delete, export, import, export all, keep", "libview.js",
+      ["lib.view(", "dev.audition(", 't("rename")', '"TAGS"', "lib.duplicate(", "lib.remove(", 'lib.file("patch"', "lib.importFiles(", 'lib.file("library"', "dev.capture("]],
+    ["library-db", "the same IndexedDB as before (a library carries over)", "library.js", ['indexedStore(name = "felucca-editor")', 'createObjectStore("patches", { keyPath: "id" })']],
+    ["bank", "the user bank: load, store, to library, erase, reload, export, put a library sound", "libview.js",
+      ["dev.bankLoad(", "dev.bankStore(", "dev.bankGet(", "dev.bankErase(", "dev.bankRefresh()", "dev.bankAll()", "dev.bankPut("]],
+    ["dnd", "drag between the library and the bank", "libview.js", ["text/x-felucca-lib", "text/x-felucca-slot"]],
+    ["samples", "samples: files, drop, zones, roots, keys, trim, auto trim, preview, record, write, erase", "sampview.js",
+      ["decodeAudio(", '"drop"', "d.setRoot(", "d.keys", "drafts[k].trim(", "d.autoTrim(", "play(z)", "getUserMedia(", "dev.smpWrite(", "dev.smpErase("]],
+    ["projects", "projects A..D: load, save", "project.js", ["dev.project(0, k)", "dev.project(1, k)"]],
+    ["song", "the song chain: rows, repeats, play / stop", "project.js", ["dev.songOp(1, rows)", "dev.songOp(play ? 3 : 2)"]],
+    ["backup", "the full backup: save, restore", "project.js", ["dev.backupSave(", "dev.backupCheck(", "dev.backupRestore("]],
+    ["globals", "BPM, swing, tune, MIDI IN", "settings.js", ["G_SKIP", "dev.setParam(1, id, v)"]],
+    ["display", "the device's display: theme, font, MIDI monitor", "settings.js", ['t("theme")', 't("font")', 't("monitor")', "dev.changePreference(id"]],
+    ["system", "what the device reported", "settings.js", ['t("firmware")', 't("userBank")']],
+    ["lang", "English / Japanese", "settings.js", ["setLang("]],
+    ["installer-link", "a link to the installer", "index.html", ['href="../installer/"']],
+  ];
+  const miss = F.filter(([, , f, parts]) => { const src = readFileSync(join(APP, f === "index.html" ? f : "src/" + f), "utf8"); return !parts.every((x) => src.includes(x)); });
+  ok(F.length === 30 && !miss.length, `features: all ${F.length} of the old editor's are in the new one` + (miss.length ? " (missing: " + miss.map((x) => x[0]).join(", ") + ")" : ""));
 }
 
 /* ------------------------------------------------------------- bundle.py --- */

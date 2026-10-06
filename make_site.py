@@ -6,8 +6,11 @@
   index.html                  redirect to the installer (the old URL keeps working)
   firmware/felucca-VER.fwsc   the package (+ LICENSE, LICENSING.md, LICENSES/: the package holds
                               JieLi SDK files under Apache-2.0, see LICENSING.md)
-  webapp/installer/index.html index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, metadata inlined)
-  webapp/editor/index.html    editor.html (+ fukiai.ttf, FUKIAI-LICENSE.txt)
+  webapp/installer/index.html index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, fm1backup.js, the
+                              metadata and the editor's colour tokens inlined; its font is the editor's)
+  webapp/editor/index.html    the editor (app/): its modules and stylesheets in one page (bundle.py),
+                              its fonts and their licences in fonts/
+  webapp/editor-classic/      the earlier editor (editor.html + fukiai.ttf, FUKIAI-LICENSE.txt, fm1backup.js)
   src/                        not touched (Felucca's sources go there)
 
   make_site.py PACKAGE.fwsc VERSION OUT_DIR [--licences DIR]
@@ -29,6 +32,8 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from bundle import bundle_page  # noqa: E402
 BLOCKS, BLK, KEEP = 20, 0x30, 0x2F
 
 
@@ -68,12 +73,14 @@ def main(pkg, version, out, licences=None):
         strip_module((HERE / "fm1backup.js").read_text(encoding="utf-8"))
     name = f"felucca-{re.sub(r'[^A-Za-z0-9.-]', '-', version)}.fwsc"
     meta = json.dumps({"version": version, "product": product, "pkg": "../../firmware/" + name})
-    for mark in ("/*LIB*/", "/*META*/"):
+    for mark in ("/*LIB*/", "/*META*/", "/*TOKENS*/"):
         if html.count(mark) != 1:
             raise SystemExit(f"index_pkg.html must contain {mark} once; update make_site.py")
-    html = html.replace("/*LIB*/", lib).replace("/*META*/", meta)
-    inst, ed, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "firmware"
-    for d in (inst, ed, fw):
+    tokens = (HERE / "app" / "tokens.css").read_text(encoding="utf-8")   # the editor's colours (gen_tokens.py)
+    html = html.replace("/*LIB*/", lib).replace("/*META*/", meta).replace("/*TOKENS*/", tokens)
+    inst, ed, cl, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "webapp" / "editor-classic", out / "firmware"
+    editor = bundle_page(HERE / "app" / "index.html")   # (before anything is written: a module the bundler refuses stops here)
+    for d in (inst, ed, cl, fw):
         d.mkdir(parents=True, exist_ok=True)
     for old in fw.glob("felucca-*.fwsc"):          # one package: the current one
         old.unlink()
@@ -91,15 +98,21 @@ def main(pkg, version, out, licences=None):
         encoding="utf-8")
     for doc in ("LICENSE", "LICENSING.md"):
         shutil.copy(lic_root / doc, fw / doc)
-    shutil.copy(HERE / "editor.html", ed / "index.html")
+    (ed / "index.html").write_text(editor, encoding="utf-8")
+    shutil.rmtree(ed / "fonts", ignore_errors=True)
+    (ed / "fonts").mkdir()
+    for f in sorted((HERE / "app" / "fonts").iterdir()):   # (links in the source: their files)
+        shutil.copyfile(f.resolve(), ed / "fonts" / f.name)
+    shutil.copy(HERE / "editor.html", cl / "index.html")
     for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
         if (HERE / f).exists():
-            shutil.copy(HERE / f, ed / f)
+            shutil.copy(HERE / f, cl / f)
     (out / "index.html").write_text(
         '<!doctype html><meta charset="utf-8"><title>Felucca</title>'
         '<meta http-equiv="refresh" content="0; url=webapp/installer/">'
         '<a href="webapp/installer/">Felucca installer</a>\n', encoding="utf-8")
-    print(f"site: {out}: webapp/installer ({len(html)} B), webapp/editor, firmware/{name} ({len(raw)} B, {product})")
+    print(f"site: {out}: webapp/installer ({len(html)} B), webapp/editor ({len(editor)} B), webapp/editor-classic, "
+          f"firmware/{name} ({len(raw)} B, {product})")
 
 
 if __name__ == "__main__":
