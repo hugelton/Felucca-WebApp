@@ -1344,12 +1344,12 @@ const FM6 = (() => {
        after the 6-byte header whatever follows it: a checksum or not, F7 or not, a stray byte, the next F0;
        a message cut short (EOF, or a byte >= 0x80 inside it) keeps its whole voices (the name may be cut: blanks);
      - several messages in one file, junk before / between / after them;
-     - the format's other blocks (manufacturer 43h: supplements, performances, 4-operator voices, "LM  ..." blocks) and other
+     - the format's other blocks (manufacturer 43h: supplements, performances, 4-operator voices, universal "LM  ..." blocks) and other
        makers' messages are skipped and counted;
      - raw data without SysEx: 4096 x n bytes (banks), 155 (one voice) or 128 bytes (one packed voice).
      -> {voices: [{name, v}], badSum: messages with a wrong checksum (still read), short: messages cut short,
-         skipped: other messages, kinds: what the skipped ones were ("fm4" 4-operator voices, "other43" other blocks of manufacturer 43h
-         data, "universal", "maker:XX" another manufacturer id), sysex: F0 seen} */
+         skipped: other messages, kinds: what the skipped ones were ("fm4" 4-operator voices, "other43" the format's other
+         blocks, "universal", "maker:XX" another manufacturer id), sysex: F0 seen} */
   function parseSysex(bytes) {
     const d = Uint8Array.from(bytes), voices = [], kinds = [];
     let badSum = 0, short = 0, skipped = 0;
