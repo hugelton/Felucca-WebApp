@@ -7,7 +7,7 @@
 import { F } from "./proto.js";
 import { el, ic } from "./dom.js";
 import { card, paramRow } from "./parts.js";
-import { t } from "./text.js";
+import { t, tf } from "./text.js";
 
 const L = (k) => String.fromCharCode(65 + k);       /* the device names projects A..D */
 const MAX_BACKUP = 600000;
@@ -24,7 +24,7 @@ export function projectScreen(root, ui) {
     try { archive = dev.backupCheck(await f.text()); } catch (e) { ui.say(`${f.name}: ${e.message}`, "warn"); return; }
     if (!(await ui.confirm("RESTORE ALL?"))) return;
     run(() => dev.backupRestore(archive, (n, total) => ui.progress(`BACKUP ${Math.round(n / Math.max(1, total) * 100)}%`)),
-      (ok) => { if (ok) ui.say(`${t("restored")} ${f.name}`); });
+      (ok) => { if (ok) ui.say(tf("didRestore", f.name)); });
   });
 
   async function run(fn, done) {
@@ -40,11 +40,11 @@ export function projectScreen(root, ui) {
       el("div", { class: "acts" },
         el("button", { type: "button", class: "btn", disabled: busy || !u, onclick: async () => {
           if (!(await ui.confirm(`LOAD ${L(k)}?`))) return;
-          run(() => dev.project(0, k), (r) => { if (r) ui.say(r.used ? `${t("loaded")} ${L(k)}` : `${L(k)} ${t("empty")}`); });
+          run(() => dev.project(0, k), (r) => { if (r) ui.say(r.used ? tf("didLoad", L(k)) : tf("isEmpty", L(k))); });
         } }, ic("symbol_folder_open"), t("load")),
         el("button", { type: "button", class: "btn", disabled: busy, onclick: async () => {
           if (!(await ui.confirm(u ? `SAVE TO ${L(k)}?` : `SAVE ${L(k)}?`))) return;
-          run(() => dev.project(1, k), (r) => { if (r) ui.say(`${t("saved")} ${L(k)}`); });
+          run(() => dev.project(1, k), (r) => { if (r) ui.say(tf("didSave", L(k))); });
         } }, ic("symbol_download_as"), t("save")))));
     return el("section", { class: "card wide" }, el("h2", {}, ic("symbol_folder_open"), el("span", { text: "PROJECTS" })), el("div", { class: "slots" }, ...slots));
   }

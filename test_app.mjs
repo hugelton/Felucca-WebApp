@@ -612,8 +612,15 @@ function dir0() { return mkdtempSync(join(tmpdir(), "felucca-tokens-")); }
   const src = readdirSync(join(APP, "src")).filter((f) => f.endsWith(".js") && f !== "proto.js" && f !== "glyphs.js")
     .map((f) => readFileSync(join(APP, "src", f), "utf8")).join("\n") + readFileSync(join(APP, "index.html"), "utf8");
   ok(TEXT && Object.keys(TEXT.en).sort().join() === Object.keys(TEXT.ja).sort().join(), "page: English and Japanese have the same words");
-  const used = new Set([...src.matchAll(/data-t="(\w+)"|"data-t": (\w+)\b|\bt\("(\w+)"\)|sayK\("(\w+)"/g)].map((m) => m[1] || m[3] || m[4]).filter(Boolean));
+  const used = new Set([...src.matchAll(/data-t="(\w+)"|"data-t": (\w+)\b|\bt\("(\w+)"\)|\btf\("(\w+)"|sayK\("(\w+)"/g)].map((m) => m[1] || m[3] || m[4] || m[5]).filter(Boolean));
   const missing = [...used].filter((k) => !TEXT.en[k]);
+  {
+    const { tf, setLang, getLang } = await import("./app/src/text.js");
+    const was = getLang();
+    setLang("ja"); const ja = tf("didLoad", "A"); setLang("en"); const en = tf("didLoad", "A"); setLang(was);
+    ok(ja.startsWith("A ") && en.endsWith(" A") && Object.entries(TEXT.en).every(([k, v]) => (v.match(/\{\d\}/g) || []).sort().join() === (TEXT.ja[k].match(/\{\d\}/g) || []).sort().join()),
+      "page: messages put their words in each language's order (the same {0} in both)");
+  }
   ok(!missing.length, "page: every word the page uses is in TEXT" + (missing.length ? " (" + missing.join(", ") + ")" : ""));
   ok((() => { try { py(join(HERE, "gen_glyphs.py"), join(APP, "src/glyphs.js"), "--check"); return true; } catch { return false; } })(),
     "icons: app/src/glyphs.js is what gen_glyphs.py reads from fukiai.ttf");

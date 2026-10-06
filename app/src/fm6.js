@@ -8,7 +8,7 @@
 import { F, FM6, noteName } from "./proto.js";
 import { el, ic } from "./dom.js";
 import { card, cells, help, paramRow } from "./parts.js";
-import { t } from "./text.js";
+import { t, tf } from "./text.js";
 
 const NS = "http://www.w3.org/2000/svg";
 const svg = (tag, a = {}) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); return e; };
@@ -44,7 +44,7 @@ export function fm6Screen(root, ui) {
   file.addEventListener("change", async () => { const f = file.files[0]; file.value = ""; if (f) importFile(f); });
 
   const track = () => dev.sel ?? 0;
-  const send = async (quiet) => { if (!dev) return; const ok = await dev.fm6Send(track(), FM6.pack(v)); if (ok && !quiet) ui.say(`${t("sent")} ${t("track")} ${track() + 1}: ${FM6.name(v)}`); };
+  const send = async (quiet) => { if (!dev) return; const ok = await dev.fm6Send(track(), FM6.pack(v)); if (ok && !quiet) ui.say(`${tf("didSend", `${t("track")} ${track() + 1}`)}: ${FM6.name(v)}`); };
   function set(i, val) {
     v[i] = Math.max(0, Math.min(FM6.max(i), Math.round(val)));
     if (live && dev) { clearTimeout(timer); timer = setTimeout(() => send(true), 150); }
@@ -89,7 +89,7 @@ export function fm6Screen(root, ui) {
       return;
     }
     imported = r.voices; picked = r.voices.length === 1 ? 0 : -1;
-    const notes = [r.badSum && t("fm6BadSum"), r.short && t("fm6Short"), r.skipped && `${r.skipped} ${t("skipped")}`].filter(Boolean);
+    const notes = [r.badSum && t("fm6BadSum"), r.short && t("fm6Short"), r.skipped && tf("skippedN", r.skipped)].filter(Boolean);
     ui.say(`${f.name}: ${r.voices.length}${notes.length ? " (" + notes.join(", ") + ")" : ""}`, notes.length ? "warn" : "info");
     if (picked === 0) load(r.voices[0].v); else draw();
   }

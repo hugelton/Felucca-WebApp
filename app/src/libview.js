@@ -9,7 +9,7 @@ import { devicePresetRows, engineLabel, engineOrder } from "./proto.js";
 import { $$, ENGINE_IC, el, ic } from "./dom.js";
 import { SORTS, fileSlug, slotName, today } from "./library.js";
 import { card, cells, help } from "./parts.js";
-import { t } from "./text.js";
+import { t, tf } from "./text.js";
 
 /* a listbox: rows [{key, cells: [...nodes], drag, drop}], selected key; arrows move, Enter = onEnter */
 function listbox(label, rows, sel, { onSelect, onEnter, onKey } = {}) {
@@ -55,7 +55,7 @@ export function libraryScreen(root, ui, lib) {
     const files = await Promise.all([...fileInput.files].map(async (f) => ({ name: f.name, text: await f.text() })));
     fileInput.value = "";
     const r = await lib.importFiles(files, dev);
-    ui.say(`${t("imported")} ${r.added}${r.skipped ? ` (${r.skipped} ${t("skipped")})` : ""}`);
+    ui.say(`${tf("didImport", r.added)}${r.skipped ? ` (${tf("skippedN", r.skipped)})` : ""}`);
     for (const [name, msg] of r.errors) ui.say(`${name}: ${msg}`, "warn");
   });
 
@@ -72,13 +72,13 @@ export function libraryScreen(root, ui, lib) {
     if (!p || !(p.state.caps & 8)) return null;
     const rows = devicePresetRows(dev.info, dev.names, p);
     const key = (r) => `${r.engine}:${r.preset}`;
-    const load = (k) => { const r = rows.find((x) => key(x) === k); if (!r || busy) return; run(() => (r.user ? dev.bankLoad(r.preset) : dev.loadPreset(r.engine, r.preset)), () => ui.say(`${t("loaded")} ${r.name}`)); };
+    const load = (k) => { const r = rows.find((x) => key(x) === k); if (!r || busy) return; run(() => (r.user ? dev.bankLoad(r.preset) : dev.loadPreset(r.engine, r.preset)), () => ui.say(tf("didLoad", r.name))); };
     const items = rows.map((r) => ({
       key: key(r), name: r.name,
       cells: [el("span", { class: "tag", text: r.user ? slotName(r.preset) : dev.info.engines[r.engine] }), el("span", { text: r.name }),
         el("span", { class: "rowacts" },
           r.user ? null : el("button", { type: "button", class: "iconbtn sm", "aria-label": `${t("keep")}: ${r.name}`, disabled: busy,
-            onclick: (e) => { e.stopPropagation(); run(() => dev.captureFactory(r.engine, r.preset), async (pt) => { if (pt) { await lib.add([pt]); ui.say(`${t("kept")} ${pt.name}`); } }); } }, ic("symbol_download_as")),
+            onclick: (e) => { e.stopPropagation(); run(() => dev.captureFactory(r.engine, r.preset), async (pt) => { if (pt) { await lib.add([pt]); ui.say(tf("didKeep", pt.name)); } }); } }, ic("symbol_download_as")),
           el("button", { type: "button", class: "iconbtn sm star" + (r.favorite ? " on" : ""), "aria-pressed": String(r.favorite), "aria-label": `FAV: ${r.name}`, disabled: busy,
             onclick: (e) => { e.stopPropagation(); run(() => dev.favorite(r, !r.favorite), (rc) => ui.prefResult(rc)); } }, ic(r.favorite ? "symbol_star" : "symbol_star_o")))],
     }));
@@ -128,7 +128,7 @@ export function libraryScreen(root, ui, lib) {
     wrap.addEventListener("drop", (e) => {
       e.preventDefault(); wrap.classList.remove("over");
       const s = e.dataTransfer.getData("text/x-felucca-slot");
-      if (s !== "" && dev) run(() => dev.bankGet(+s), async (pt) => { if (pt) { await lib.add([pt]); ui.say(`${t("kept")} ${pt.name}`); } });
+      if (s !== "" && dev) run(() => dev.bankGet(+s), async (pt) => { if (pt) { await lib.add([pt]); ui.say(tf("didKeep", pt.name)); } });
     });
     const search = el("input", { class: "search", type: "search", value: view.q, "aria-label": t("search"), placeholder: t("search") });
     search.addEventListener("input", () => { view.q = search.value; const at = search.selectionStart; draw(); const n = $$("#s-library input.search")[0]; if (n) { n.focus(); n.setSelectionRange(at, at); } });
@@ -153,7 +153,7 @@ export function libraryScreen(root, ui, lib) {
           const def = (dev.names[dev.dump.engine] || [])[dev.dump.preset] || dev.info.engines[dev.dump.engine];
           const name = await ui.ask(t("keep"), def);
           if (name == null) return;
-          run(() => dev.capture(name.trim() || def), async (pt) => { if (pt) { await lib.add([pt]); ui.say(`${t("kept")} ${pt.name}`); } });
+          run(() => dev.capture(name.trim() || def), async (pt) => { if (pt) { await lib.add([pt]); ui.say(tf("didKeep", pt.name)); } });
         }, !dev || busy),
         btn("symbol_upload", t("import"), () => fileInput.click()),
         btn("symbol_download", t("exportAll"), () => ui.download(`felucca-library-${today()}.json`, lib.file("library", lib.patches, dev)), !lib.patches.length)),
@@ -166,7 +166,7 @@ export function libraryScreen(root, ui, lib) {
   function userBank() {
     if (!dev || !dev.bank) return null;
     const b = dev.bank, s = bankSel == null ? null : b.slots[bankSel];
-    const load = (slot) => { const x = b.slots[slot]; if (!x || !x.used || busy) return; run(() => dev.bankLoad(slot), (ok) => ui.say(ok ? `${t("loaded")} ${slotName(slot)} ${x.name}` : `${slotName(slot)} ${t("empty")}`)); };
+    const load = (slot) => { const x = b.slots[slot]; if (!x || !x.used || busy) return; run(() => dev.bankLoad(slot), (ok) => ui.say(ok ? tf("didLoad", `${slotName(slot)} ${x.name}`) : tf("isEmpty", slotName(slot)))); };
     const rows = b.slots.map((x) => ({
       key: x.slot, name: x.used ? x.name : t("empty"), dim: !x.used,
       drag: x.used ? ["text/x-felucca-slot", String(x.slot)] : null,
@@ -185,7 +185,7 @@ export function libraryScreen(root, ui, lib) {
           if (s.used && !(await ui.confirm(`${t("overwrite")} ${slotName(bankSel)} ${s.name}?`))) return;
           run(() => dev.bankStore(bankSel, name.trim()), (ok) => { if (ok) ui.say(`${slotName(bankSel)} ${dev.bank.slots[bankSel].name}`); });
         }, !s || busy),
-        btn("symbol_books", t("toLibrary"), () => run(() => dev.bankGet(bankSel), async (pt) => { if (pt) { await lib.add([pt]); ui.say(`${t("kept")} ${pt.name}`); } }), !s || !s.used || busy),
+        btn("symbol_books", t("toLibrary"), () => run(() => dev.bankGet(bankSel), async (pt) => { if (pt) { await lib.add([pt]); ui.say(tf("didKeep", pt.name)); } }), !s || !s.used || busy),
         btn("symbol_trash", t("erase"), async () => { if (await ui.confirm(`${t("erase")} ${slotName(bankSel)} ${s.name}?`)) run(() => dev.bankErase(bankSel)); }, !s || !s.used || busy),
         btn("control_arrow_loop", "RELOAD", () => run(() => dev.bankRefresh()), busy),
         btn("symbol_download", t("export"), () => run(() => dev.bankAll(), (out) => { if (out) ui.download(`felucca-bank-${today()}.json`, lib.file("bank", out, dev)); }),
