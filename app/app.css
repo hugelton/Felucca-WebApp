@@ -23,7 +23,6 @@ html:not(.fk) .ic { visibility: hidden; }
 /* ---- shell ---- */
 .app { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); grid-template-rows: auto 1fr var(--bar); min-height: 100vh; }
 .top { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 10px 16px; position: sticky; top: 0; z-index: 5; background: var(--bg); }
-.brand { font-size: 1rem; font-weight: 600; letter-spacing: .02em; color: var(--text); margin-right: 8px; }
 .conn { display: flex; align-items: center; gap: 8px; }
 .btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 0; border-radius: var(--r-s); background: var(--raise); color: var(--text); cursor: pointer; font-size: .75rem; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; }
 .btn:hover { background: var(--key); color: var(--ink); }
@@ -197,7 +196,7 @@ dialog .acts { display: flex; gap: 8px; justify-content: flex-end; }
   .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr var(--bar); padding-bottom: calc(var(--nav) + env(safe-area-inset-bottom)); }
   .top { flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
   .top .state { display: none; }
-  .brand { display: none; }
+  #installer { display: none; }                 /* (on a phone: in settings > system) */
   .tools .iconbtn { width: 36px; }
   .store { padding: 0 4px; margin-left: auto; }
   .store .lbl { display: none; }
@@ -369,3 +368,4 @@ a.iconbtn { text-decoration: none; }
 .strip.muted .vgauge .fill { border-top-color: var(--dim); background: color-mix(in srgb, var(--dim) 14%, var(--bg)); }
 .strip.muted .vgauge .v { color: var(--dim); }
 @media (max-width: 640px) { .vgauge { height: 160px; } }
+@media (max-width: 400px) { #store-t { display: none; } .store .bar { width: 48px; } }   /* (the dialog has the numbers) */
