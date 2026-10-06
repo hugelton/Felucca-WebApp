@@ -18,9 +18,11 @@ const flash = (row) => { row.classList.remove("pulse"); void row.offsetWidth; ro
 const fmt = (d, v, rename) => { const [x, u] = fmtValue(d, v); return [rename ? rename(x) : x, u]; };
 export const isChoice = (d) => d.fmt === F.ENUM || d.fmt === F.NOTE || d.fmt === F.ONOFF;
 
-/* d: a DESC; value: now; onset(v, final); opt: {icon, label, rename (an ENUM text -> shown text), hot} */
+/* d: a DESC; value: now; onset(v, final); opt: {icon (a name, or v -> a name: WAVE's follows the shape), label,
+   rename (an ENUM text -> shown text), hot} */
 export function paramRow(d, value, onset, opt = {}) {
   const label = opt.label || d.label;
+  if (typeof opt.icon === "function" && !isChoice(d)) opt = { ...opt, icon: opt.icon(value) };
   return isChoice(d) ? choiceRow(d, value, onset, opt, label) : gaugeRow(d, value, onset, opt, label);
 }
 
@@ -79,9 +81,14 @@ function choiceRow(d, value, onset, opt, label) {
     const alias = d.fmt === F.ENUM && d.names && aliasOf(d.names, v - d.min) !== v - d.min;   /* shown when set, not offered */
     select.append(el("option", { value: v, text: d.fmt === F.ENUM && d.names[v - d.min] == null ? String(v) : x, hidden: alias }));
   }
-  const row = el("div", { class: "gauge choice" }, val,
-    el("span", { class: "l" }, opt.icon ? ic(opt.icon) : null, el("span", { class: "lbl", text: label })), select);
-  const show = (v) => { const [x, u] = fmt(d, v, opt.rename); put(val, document.createTextNode(x), u ? el("small", { text: u }) : null); select.value = String(v); };
+  const lab = el("span", { class: "l" }), name = el("span", { class: "lbl", text: label });
+  const row = el("div", { class: "gauge choice" }, val, lab, select);
+  let shown;
+  const show = (v) => {
+    const [x, u] = fmt(d, v, opt.rename); put(val, document.createTextNode(x), u ? el("small", { text: u }) : null); select.value = String(v);
+    const i = typeof opt.icon === "function" ? opt.icon(v) : opt.icon;
+    if (i !== shown || !lab.firstChild) { shown = i; put(lab, i ? ic(i) : null, name); }
+  };
   select.addEventListener("change", () => { show(+select.value); help(label, val.textContent); onset(+select.value, true); });
   select.addEventListener("focus", () => help(label, val.textContent));
   select.addEventListener("pointerenter", () => help(label, val.textContent));

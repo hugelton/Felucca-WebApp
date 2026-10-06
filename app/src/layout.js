@@ -5,6 +5,7 @@
 // known one (device.js knownLayout); otherwise every parameter is listed in id order. And the icons by label.
 
 import { P_CHORD } from "./proto.js";
+import { BY_LABEL, BY_WAVE, SPECIAL } from "./paramicons.js";
 
 /* group: {t: title, place, pages: [[title, scope, ids]]} or {t, mod: first id} (the matrix, 4 rows of SRC DST AMT);
    engine: true = the engine's EDIT pages (page titles from NAMES) */
@@ -32,15 +33,21 @@ export const visible = (d) => !!d && d.max > d.min && d.label !== "-";
 export const HEAD_IC = { ENV: "function_env_adsr_exp", LFO: "waveform_sine", MOD: "symbol_modular", EDIT: "ui_knob", VOICE: "symbol_keyboard",
   FX: "symbol_effector", SCL: "control_arow_scale", ARP: "control_arrow_loop", PATTERN: "symbol_grid", GLOBAL: "symbol_cog", "OP ENV": "function_env_adsr_lin" };
 
-/* a parameter's icon by its label (the device's legacy names, tools/gen_aa_icons.py LEGACY) */
-const BY_LABEL = {
-  ATK: "function_env_adsr_attack", DEC: "function_env_adsr_decay", SUS: "function_env_adsr_sustain", REL: "function_env_adsr_release",
-  CUT: "function_filter_lpf", CUTF: "function_filter_lpf", RES: "function_filter_lpf_peak", RATE: "symbol_speed", WAVE: "waveform_variant",
-  LVL: "symbol_volume", LEVEL: "symbol_volume", PAN: "symbol_pan", MUTE: "control_speaker_mute", DLY: "symbol_echo", REV: "symbol_spring",
-  CHO: "symbol_waves", DST: "function_signal_clip", GATE: "function_gate_unipolar", SWG: "symbol_swing", PROB: "symbol_dice",
-  BPM: "symbol_tempo", TUNE: "symbol_tuning", PIT: "waveform_pitch", PTCH: "waveform_pitch", GLID: "symbol_transition", GLD: "symbol_transition",
-  LEN: "control_arrow_end", DIV: "note_quarter", OCT: "control_arrow_up", ROOT: "symbol_keyboard", SCL: "control_arow_scale",
-  HOLD: "symbol_lock_close_f", ORD: "symbol_sort", MODE: "control_arrow_loop", PHS: "function_phase", FADE: "waveform_fade",
-  FB: "symbol_feedback", MIX: "symbol_combine", TIME: "symbol_clock", SIZE: "control_arrow_both", DAMP: "symbol_weight", TONE: "function_filter_band",
-};
-export const paramIcon = (label) => BY_LABEL[label] || null;
+/* a parameter's icon, as the device's param_icon() (felucca/src/icons.c; the table: paramicons.js, gen_icons.py):
+   WAVE / WAVE2 by the shape set, then the parameters whose label means something else there, then by label */
+const same = (a, b) => !!a && a.length === b.length && b.every((x, i) => a[i] === x);
+export function paramIcon(d, v) {
+  if (!d) return null;
+  if (typeof d === "string") return BY_LABEL[d] || SPECIAL.ICON_GENERIC || null;
+  const n = d.names || [];
+  if ((d.label === "WAVE" || d.label === "WAVE2") && n.length && v != null && BY_WAVE[n[v - d.min]]) return BY_WAVE[n[v - d.min]];
+  if (d.scope === 0 && d.id === 10) return SPECIAL.ICON_LFO_WAVE;                 /* the LFO's WAVE (also the oscillator's) */
+  if (d.scope === 0 && (d.id === 18 || d.id === 47)) return SPECIAL.ICON_DIVISION; /* arp / SLICER RATE: a note division */
+  if (same(n, ["LP", "BP", "HP", "NOT"])) return SPECIAL.ICON_CUTOFF;             /* TRIO's MODE: the filter type */
+  if (same(n, ["ANLG", "DUST", "LFSR", "META"])) return SPECIAL.ICON_NOISE;       /* NOISE's MODE: the source */
+  if (d.scope === 0 && d.label === "CLK") return SPECIAL.ICON_RATE;               /* NOISE's CLK: the register clock */
+  if (same(n, ["4", "8", "16", "32", "AUTO", "MAN"])) return SPECIAL.ICON_SLICE;
+  if (same(n, ["ONE", "GATE", "LOOP"])) return SPECIAL.ICON_GATE;
+  if (d.label === "REV" && same(n, ["OFF", "ON"]) && d.scope === 0 && d.id >= 61) return SPECIAL.ICON_ORDER;
+  return BY_LABEL[d.label] || SPECIAL.ICON_GENERIC || null;
+}

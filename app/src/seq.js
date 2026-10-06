@@ -167,7 +167,7 @@ export function seqScreen(root, ui) {
     const evs = m.events.filter((e) => e.step === cur);
     const rows = evs.map((e) => {
       const d = dev.pdesc[e.param];
-      const r = d ? paramRow(d, e.value, (v, final) => { if (final) dev.motionOp(3, { ...e, value: v }); }, { icon: paramIcon(d.label) }) : null;
+      const r = d ? paramRow(d, e.value, (v, final) => { if (final) dev.motionOp(3, { ...e, value: v }); }, { icon: (v) => paramIcon(d, v) }) : null;
       return el("div", { class: "evrow" }, r ? r.el : el("span", { text: `P${e.param}` }),
         el("button", { type: "button", class: "iconbtn", "aria-label": `${d ? d.label : e.param} ×`, onclick: () => dev.motionOp(4, e) }, ic("symbol_trash")));
     });
@@ -195,7 +195,7 @@ export function seqScreen(root, ui) {
     const rows = ids.map((id) => {
       const d = dev.pdesc[id];
       if (!visible(d)) return null;
-      const r = paramRow(d, dev.dump.p[id], (v) => { dev.setParam(0, id, v); if (id === dev.pSlen()) { bank = Math.min(bank, pages() - 1); drawGrid(); drawBanks(); } }, { icon: paramIcon(d.label) });
+      const r = paramRow(d, dev.dump.p[id], (v) => { dev.setParam(0, id, v); if (id === dev.pSlen()) { bank = Math.min(bank, pages() - 1); drawGrid(); drawBanks(); } }, { icon: (v) => paramIcon(d, v) });
       pattern.set(id, r);
       return r.el;
     }).filter(Boolean);

@@ -554,6 +554,28 @@ if (existsSync(INTERTIGHT))
   ok((() => { try { execFileSync("python3", [join(HERE, "gen_fonts.py"), "--check", "--source", INTERTIGHT]); return true; } catch { return false; } })(),
     "fonts: app/fonts/InterTight-subset.ttf is what gen_fonts.py cuts");
 else console.log("fonts: from InterTight[wght].ttf (no FELUCCA_INTERTIGHT)           skip");
+const FIRMWARE = process.env.FELUCCA_FIRMWARE || join(HERE, "..");
+if (existsSync(join(FIRMWARE, "src/icons.c")))
+  ok((() => { try { execFileSync("python3", [join(HERE, "gen_icons.py"), join(APP, "src/paramicons.js"), "--check", "--firmware", FIRMWARE], { stdio: "pipe" }); return true; } catch { return false; } })(),
+    "icons: app/src/paramicons.js is what gen_icons.py reads from the firmware's icons.c");
+else console.log("icons: from the firmware's icons.c (no FELUCCA_FIRMWARE)           skip");
+{
+  /* a parameter's icon as the device draws it: by label, WAVE by the shape set, the labels that mean something else */
+  const { paramIcon } = await import("./app/src/layout.js");
+  const { BY_LABEL, BY_WAVE, SPECIAL } = await import("./app/src/paramicons.js");
+  const D = (o) => ({ scope: 0, id: 70, fmt: 3, min: 0, max: 3, names: [], ...o });
+  ok(paramIcon(D({ label: "ATK" })) === BY_LABEL.ATK && paramIcon("ATK") === BY_LABEL.ATK, "icons: a parameter by its label");
+  ok(paramIcon(D({ label: "ZZZZ" })) === SPECIAL.ICON_GENERIC && !!SPECIAL.ICON_GENERIC, "icons: an unknown label gets the generic one");
+  const wave = D({ label: "WAVE", names: ["SIN", "SAW", "SQR", "TRI"] });
+  ok(paramIcon(wave, 1) === BY_WAVE.SAW && paramIcon(wave, 2) === BY_WAVE.SQR && BY_WAVE.SAW !== BY_WAVE.SQR, "icons: WAVE follows the shape set");
+  ok(paramIcon(D({ label: "WAVE", id: 10, names: ["X"] }), 0) === SPECIAL.ICON_LFO_WAVE, "icons: the LFO's WAVE");
+  ok(paramIcon(D({ label: "RATE", id: 18 })) === SPECIAL.ICON_DIVISION && paramIcon(D({ label: "RATE", id: 47 })) === SPECIAL.ICON_DIVISION
+    && paramIcon(D({ label: "RATE", id: 9 })) === BY_LABEL.RATE, "icons: arp and SLICER RATE are a division, the LFO's a rate");
+  ok(paramIcon(D({ label: "MODE", names: ["LP", "BP", "HP", "NOT"] })) === SPECIAL.ICON_CUTOFF
+    && paramIcon(D({ label: "MODE", names: ["ANLG", "DUST", "LFSR", "META"] })) === SPECIAL.ICON_NOISE
+    && paramIcon(D({ label: "CLK", fmt: 0, names: [] })) === SPECIAL.ICON_RATE && paramIcon(D({ label: "CLK", scope: 1 })) === BY_LABEL.CLK,
+    "icons: TRIO's and NOISE's MODE, NOISE's CLK (not the global CLK)");
+}
 {
   /* felucca/web stands alone: no link in app/ points outside it; the licences beside the fonts are files of their own */
   const links = [];
@@ -604,7 +626,7 @@ function dir0() { return mkdtempSync(join(tmpdir(), "felucca-tokens-")); }
   {
     /* what ships publicly: no notes to self (memos, R numbers, dates, private paths) in the new sources */
     const own = [...readdirSync(join(APP, "src")).filter((f) => f.endsWith(".js") && f !== "glyphs.js").map((f) => join(APP, "src", f)),
-      join(APP, "index.html"), join(APP, "app.css"), join(HERE, "bundle.py"), join(HERE, "gen_tokens.py"), join(HERE, "gen_glyphs.py"), join(HERE, "gen_fonts.py")];
+      join(APP, "index.html"), join(APP, "app.css"), join(HERE, "bundle.py"), join(HERE, "gen_tokens.py"), join(HERE, "gen_glyphs.py"), join(HERE, "gen_fonts.py"), join(HERE, "gen_icons.py")];
     const bad = own.filter((f) => {
       const x = readFileSync(f, "utf8").replace(/"exported": "\d{4}-\d\d-\d\dT[^"]*"/g, "");   /* (a sample file's timestamp in the mock) */
       const notes = (x.match(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|#[^\n]*/g) || []).join("\n");   /* (R numbers: in comments; "R1" is an EG rate) */

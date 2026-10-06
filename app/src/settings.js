@@ -33,7 +33,7 @@ export function settingsScreen(root, ui) {
     for (const id of ids) {
       const d = dev.gdesc[id];
       if (!visible(d) || G_SKIP.has(d.label)) continue;
-      const r = paramRow(d, dev.dump.g[id], (v) => { dev.setParam(1, id, v); ui.changed(1, id, v); }, { icon: paramIcon(d.label) });
+      const r = paramRow(d, dev.dump.g[id], (v) => { dev.setParam(1, id, v); ui.changed(1, id, v); }, { icon: (v) => paramIcon(d, v) });
       rows.set(id, r); out.push(r.el);
     }
     return card(t("global"), HEAD_IC.GLOBAL, el("div", { class: "rows" }, ...out));

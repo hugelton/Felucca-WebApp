@@ -34,7 +34,7 @@ export function soundScreen(root, ui) {
     const d = desc(s, id);
     if (!visible(d) || (s === 1 && G_SKIP.has(d.label))) return null;
     const r = paramRow(d, value(s, id), (v) => { dev.setParam(s, id, v); redraw(s, id); ui.changed(s, id, v); },
-      { icon: paramIcon(d.label), rename: modDst(d) });
+      { icon: (v) => paramIcon(d, v), rename: modDst(d) });
     rows.set(key(s, id), r);
     return r.el;
   }
