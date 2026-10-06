@@ -21,10 +21,12 @@ export const LAYOUT = (pe0, engine) => [
   { t: "SCL", place: "sound", pages: [["SCL", 0, [25, 26, 27, 28]], ...(pe0 >= 83 ? [["CHORD", 0, P_CHORD]] : [])] },
   { t: "ARP", place: "sound", pages: [["ARP", 0, [17, 18, 19, 20]], ["ARP 2", 0, [21, 22, 23, 24]]] },
   { t: "PATTERN", place: "seq", pages: [["PATTERN", 0, [29, 30, 31, 32]]] },
-  { t: "GLOBAL", place: "settings", pages: [["GLOBAL", 1, [0, 1, 2, 3]], ["MIDI", 1, [14]]] },   /* G_ROUTE: MIDI IN */
+  { t: "GLOBAL", place: "settings", pages: [["GLOBAL", 1, [0, 1, 2, 3]], ["MIDI", 1, [12, 14]]] },   /* BPM SWG CLK TUNE; MIDI (port), ROUT (MIDI IN) */
 ];
-/* globals that are actions or placeholders on the device: not shown */
-export const G_SKIP = new Set(["SLOT", "NAME", "LOAD", "SAVE", "ENG", "SET", "CLRSQ", "INIT", "MIDI", "SYNC", "CPU", "CLK"]);
+/* globals that are actions or placeholders on the device: not shown (a placeholder also has no range: visible()) */
+export const G_SKIP = new Set(["SLOT", "NAME", "LOAD", "SAVE", "ENG", "SET", "CLRSQ", "INIT", "SYNC", "CPU"]);
+/* the globals a layout places (settings shows them in its order, then every other one it does not skip) */
+export const placedGlobals = (pe0) => new Set(LAYOUT(pe0).flatMap((g) => (g.pages || []).filter(([, s]) => s === 1).flatMap(([, , ids]) => ids)));
 export const visible = (d) => !!d && d.max > d.min && d.label !== "-";
 
 export const HEAD_IC = { ENV: "function_env_adsr_exp", LFO: "waveform_sine", MOD: "symbol_modular", EDIT: "ui_knob", VOICE: "symbol_keyboard",

@@ -5,7 +5,7 @@
 // the editor's own (display, text size, language: kept in this browser) and what the device reported.
 
 import { el, store } from "./dom.js";
-import { G_SKIP, HEAD_IC, LAYOUT, paramIcon, visible } from "./layout.js";
+import { G_SKIP, HEAD_IC, LAYOUT, paramIcon, placedGlobals, visible } from "./layout.js";
 import { card, cells, paramRow } from "./parts.js";
 import { knownLayout } from "./device.js";
 import { LANGS, getLang, setLang, t } from "./text.js";
@@ -25,7 +25,10 @@ export function settingsScreen(root, ui) {
 
   function globals() {
     const g = LAYOUT(dev.info.pe0).find((x) => x.place === "settings");
-    const ids = knownLayout(dev.info) ? g.pages.flatMap(([, , list]) => list) : dev.gdesc.map((_, i) => i);
+    /* the layout's order first; then any global no page places (one a newer firmware adds) */
+    const placed = placedGlobals(dev.info.pe0);
+    const ids = knownLayout(dev.info) ? [...g.pages.flatMap(([, , list]) => list), ...dev.gdesc.map((_, i) => i).filter((i) => !placed.has(i))]
+      : dev.gdesc.map((_, i) => i);
     const out = [];
     for (const id of ids) {
       const d = dev.gdesc[id];

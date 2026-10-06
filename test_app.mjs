@@ -471,6 +471,24 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   ok(F.length === 30 && !miss.length, `features: all ${F.length} of the old editor's are in the new one` + (miss.length ? " (missing: " + miss.map((x) => x[0]).join(", ") + ")" : ""));
 }
 
+
+/* ------------------------------------------------------------ settings --- */
+{
+  const { G_SKIP, placedGlobals, visible, LAYOUT } = await import("./app/src/layout.js");
+  ok(!G_SKIP.has("CLK") && !G_SKIP.has("MIDI"), "settings: CLK (MIDI clock) and MIDI (port) are shown");
+  /* every global the firmware has is on a page (SOUND's FX, settings), or an action / placeholder: from desc.json */
+  const dj = process.env.FELUCCA_DESC || join(HERE, "../../build/host/desc.json");
+  if (existsSync(dj)) {
+    const GP = JSON.parse(readFileSync(dj, "utf8")).GP, pe0 = 83;
+    const placed = placedGlobals(pe0), settingsIds = LAYOUT(pe0).find((g) => g.place === "settings").pages.flatMap(([, , l]) => l);
+    /* settings shows its pages' globals, then every global no page places; so what is left out is G_SKIP and no-range ones */
+    const left = GP.filter((d) => G_SKIP.has(d.label) || !visible(d)).map((d) => d.label);
+    ok(GP[2].label === "CLK" && GP[12].label === "MIDI" && settingsIds.includes(2) && settingsIds.includes(12) && placed.has(2) && placed.has(12)
+       && left.every((l) => ["SLOT", "NAME", "LOAD", "SAVE", "ENG", "SET", "CLRSQ", "INIT", "SYNC", "CPU", "-"].includes(l)),
+      "settings: only the firmware's actions and placeholders are left out (desc.json)");
+  } else console.log("settings: every firmware global shown (no FELUCCA_DESC)                skip");
+}
+
 /* ------------------------------------------------------------- bundle.py --- */
 {
   const dir = mkdtempSync(join(tmpdir(), "felucca-bundle-"));
