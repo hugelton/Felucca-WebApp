@@ -7,7 +7,7 @@
 // The behaviour is editor.html's (connect, load, onPush, keepAlive, the 400 ms poll, selfLoad), moved here.
 
 import { captureBackup, readBackup, restoreBackup } from "../../fm1backup.js";
-import { CMD, F, FLASH_OPT, FM6, Link, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
+import { CMD, F, FLASH_OPT, FM6, Link, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDeviceMenu, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
 
 export const isFelucca = (p) => /felucca/i.test(p.name || "") && p.state !== "disconnected";
 export const P = { LEVEL: 0, SLEN: 29 };
@@ -28,7 +28,7 @@ export class Device {
     this.info = null; this.pdesc = []; this.gdesc = []; this.names = []; this.titles = [];
     this.dump = null; this.steps = []; this.slotUsed = [null, null, null, null]; this.smp = null; this.keys = null;
     this.watch = false; this.v4 = false; this.bank = null; this.sel = 0; this.mix = null; this.song = null;
-    this.motion = null; this.preferences = null; this.fm6 = null;
+    this.motion = null; this.preferences = null; this.fm6 = null; this.menu = null;
     this.busy = 0; this.busyEpoch = 0; this.closed = false; this.loaded = false;
     this.needReload = false; this.lastDump = 0; this.rewatch = false; this.stepRR = 0;
     this.selfReload = { n: 0, until: 0 };
@@ -37,7 +37,7 @@ export class Device {
     this.timers = [];
   }
 
-  /* ---- events: progress, loaded, param, reload, step, track, mix, live, storage, closed, error ---- */
+  /* ---- events: progress, loaded, param, reload, step, track, mix, live, storage, menu, closed, error ---- */
   on(name, fn) { if (!this.handlers.has(name)) this.handlers.set(name, new Set()); this.handlers.get(name).add(fn); return () => this.handlers.get(name).delete(fn); }
   emit(name, value) { for (const fn of this.handlers.get(name) || []) { try { fn(value); } catch (e) { console.error(e); } } }
 
@@ -124,6 +124,7 @@ export class Device {
       }
       await this.syncPreferences();
       await this.readFm6List();
+      if (this.info.menuCount) try { this.menu = await readDeviceMenu((r, o) => this.rq(r, o), this.info); } catch (e) { if (e.message === "closed") throw e; this.menu = null; }
       this.loaded = true;
       this.emit("loaded", this);
       this.emit("live", this.watch);
@@ -571,6 +572,31 @@ export class Device {
     const pe0 = this.info.pe0;
     for (let k = 0; k < 8 && pe0 + k < this.info.pcount; k++) this.pdesc[pe0 + k] = await this.descOrNull(0, pe0 + k);
   }
+  /* ---- MENU settings (1.0.4: INFO menuCount; MENU_DESC 72, MENU_SET 73): not pushed, read when settings show ---- */
+  async readMenu() {
+    if (!this.info || !this.info.menuCount) return null;
+    await this.idle();
+    const items = await this.op(() => readDeviceMenu((r, o) => this.rq(r, o), this.info));
+    if (items) { this.menu = items; this.emit("menu", items); }
+    return this.menu;
+  }
+  /* -> rc (as UI_SET: 0 saved, 3 not saved, 4 after STOP, 1 refused); USB SERIAL changed: the device leaves the bus
+     and comes back (every USB port), so this connection ends ("usb") and the page connects again */
+  async menuSet(id, value) {
+    await this.idle();
+    const m = (this.menu || []).find((x) => x.id === id);
+    const before = m ? m.value : null;
+    const rc = await this.op(async () => {
+      const r = parse[CMD.MENU_SET](await this.rq(req.menuSet(id, value), FLASH_OPT));
+      if (m && !r.rc) m.value = r.value;
+      if (id === 0 && !r.rc) await this.syncPreferences();   /* (COLOR is the display preference 0) */
+      return r.rc;
+    });
+    if (m && m.name === "USB SERIAL" && rc === 0 && m.value !== before) this.close("usb");
+    else this.emit("menu", this.menu);
+    return rc;
+  }
+
   async changePreference(id, value) {
     await this.idle();
     return this.op(async () => {

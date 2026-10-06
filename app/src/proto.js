@@ -7,6 +7,7 @@
 // checks against both (FELUCCA_PROTO=app: this file). Since the move, only the mock has changed, towards the firmware:
 // - MOTION set / delete refuse (rc 1) a step >= 64, a parameter that cannot be recorded and a value out of range
 // - INFO advertises the full backup (42 01 03) and BACKUP_LIST / GET / PUT answer as the firmware's (opt.noBackup: not)
+// - 1.0.4: the MENU settings (INFO 4E 01 count, MENU_DESC 72, MENU_SET 73; opt.noMenu: not), the firmware's items (MENU)
 /*PROTO-BEGIN*/
 /* ---------------------------------------------------------------- protocol --- */
 const HDR = [0x7D, 0x46, 0x4C];
@@ -18,7 +19,7 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   TRACK_PARAM: 31, TRACK_CHANGED: 32, SONG: 33,
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
-  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71 };
+  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, MENU_DESC: 72, MENU_SET: 73 };
 /* frames the device sends on its own (while WATCH is on); never replies */
 const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
 /* user preset bank: name 1..12 printable ASCII, a 16-step pattern of (note, flags 1 acc 2 slide 4 tie) */
@@ -105,7 +106,10 @@ const parse = {
       if (trailer[p + 4] === 0x53 && trailer[p + 5] === 1) o.syncCaps = trailer[p + 6] & 3;
       /* FM6 v2 (1.0.3): bit 0 no bank (SLOT F1..F8, 8 = OWN), bit 1 the user presets carry their patch (target 3) */
       if (trailer[p + 7] === 0x50 && trailer[p + 8] === 1) o.fm6.caps = trailer[p + 9] & 3;
+      /* MENU settings (1.0.4): the items MENU_DESC offers (index 0..menuCount-1) */
+      if (trailer[p + 7] === 0x50 && trailer[p + 10] === 0x4E && trailer[p + 11] === 1) o.menuCount = trailer[p + 12];
     }
+    o.menuCount = o.menuCount || 0;
     return o;
   },
   [CMD.UI_STATE](a) {
@@ -238,6 +242,16 @@ const parse = {
     return o;
   },
   [CMD.FM6_ERASE](a) { return { index: a[0], rc: a[1] }; },
+  /* MENU settings: kind 0 an enum (one name per value min..max), 1 a number with a unit; id 127: no item at index */
+  [CMD.MENU_DESC](a) {
+    const r = new Reader(a), o = { index: r.b(), id: r.b() };
+    if (o.id === 127) return o;
+    Object.assign(o, { kind: r.b(), value: r.v(), min: r.v(), max: r.v(), name: r.s(), unit: "", names: null });
+    if (o.kind === 1) o.unit = r.s();
+    else if (o.kind === 0) o.names = Array.from({ length: o.max - o.min + 1 }, () => r.s());
+    return o;
+  },
+  [CMD.MENU_SET](a) { const r = new Reader(a); return { rc: r.b(), id: r.b(), value: r.v() }; },
 };
 
 /* a name the device accepts: printable ASCII, 1..12 characters */
@@ -305,6 +319,9 @@ const req = {
   fm6Put: (target, i, packed) => [CMD.FM6_PUT, [target & 0x7F, i & 0x7F, ...packed.map((x) => x & 0x7F)]],
   fm6List: () => [CMD.FM6_LIST, []],
   fm6Erase: (i) => [CMD.FM6_ERASE, [i & 0x7F]],
+  /* MENU settings (firmware with info.menuCount) */
+  menuDesc: (i) => [CMD.MENU_DESC, [i & 0x7F]],
+  menuSet: (id, v) => [CMD.MENU_SET, [id & 0x7F, ...v14enc(v)]],
 };
 
 /* which reply belongs to which request (the device echoes these) */
@@ -323,6 +340,8 @@ function replyMatches(cmd, args, a) {
     case CMD.SONG: return a[0] === args[0];
     case CMD.FM6_GET: case CMD.FM6_PUT: return a[0] === args[0] && a[1] === args[1];
     case CMD.FM6_ERASE: return a[0] === args[0];
+    case CMD.MENU_DESC: return a[0] === args[0];
+    case CMD.MENU_SET: return a[1] === args[0];
     case CMD.PROJECT: return a[0] === args[0] && a[1] === args[1];
     case CMD.UP_LIST: case CMD.UP_GET: case CMD.UP_PUT: case CMD.UP_STORE: case CMD.UP_LOAD: case CMD.UP_ERASE:
     case CMD.TRACK_MIX: case CMD.TRACK_DUMP: return a[0] === args[0];
@@ -1304,6 +1323,28 @@ function fromPerc(pt, engines, pe0) {
 /* an engine's name to show: the reserved engine 1 holds DIGITAL sounds that play as FM6 */
 const engineLabel = (engines, e) => (e === 1 && (engines || [])[1] === "-" ? "FM6" : (engines || [])[e] ?? String(e));
 
+/* the firmware's MENU settings as MENU_DESC lists them (src/menu_items.c, src/editor_menu.c; test_web.mjs: == the
+   firmware's, build/host/menu.json): id, name, value names (COLOR: the palettes, UI_PALETTES), the default */
+const MENU = [
+  { id: 0, name: "COLOR", names: null, def: 0 }, { id: 1, name: "STYLE", names: ["FLAT", "LINE"], def: 0 },
+  { id: 2, name: "LARGE", names: ["OFF", "ON"], def: 0 }, { id: 3, name: "ANIM", names: ["ON", "OFF"], def: 0 },
+  { id: 4, name: "LEDS", names: ["OFF", "DIM LO", "DIM HI", "INV"], def: 2 },
+  { id: 5, name: "HOLD", names: ["0.3 s", "0.4 s", "0.5 s", "0.6 s"], def: 1 },
+  { id: 6, name: "KNOB ACCEL", names: ["OFF", "ON"], def: 0 }, { id: 7, name: "FX LATCH", names: ["OFF", "ON"], def: 0 },
+  { id: 8, name: "BPM LOCK", names: ["OFF", "ON"], def: 0 }, { id: 9, name: "SPEAKER EQ", names: ["FLAT", "LOWCUT", "BASS+"], def: 0 },
+  { id: 10, name: "USB LEVEL", names: ["MASTER", "FIXED"], def: 0 }, { id: 11, name: "USB SERIAL", names: ["ON", "OFF"], def: 0 },
+];
+/* the MENU settings the device offers, in its menu's order (firmware without them: []); rq as the other readers */
+async function readDeviceMenu(rq, info) {
+  const items = [];
+  for (let i = 0; i < (info.menuCount || 0); i++) {
+    const d = parse[CMD.MENU_DESC](await rq(req.menuDesc(i)));
+    if (d.id === 127) break;
+    items.push(d);
+  }
+  return items;
+}
+
 function makeMockDevice(opt = {}) {
   const NONOFF = ["OFF", "ON"], NDIV = ["1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"], NGO = ["--", "GO"], NDASH = ["--"];
   const D = (label, fmt, min, max, def, names = null, unit = "") => ({ label, fmt, min, max, def, names, unit });
@@ -1460,6 +1501,7 @@ function makeMockDevice(opt = {}) {
     palette: 0, font: 0, monitor: 0, filter: 0, bankSig: 0,
     palettes: ["GREY", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON", "NIGHT", "MONO"],
     favorites: Array.from({ length: ENG.length + 1 }, () => []),
+    menu: MENU.map((m) => m.def),                   /* the MENU settings' values (COLOR: palette) */
     watch: false, v4: false, lastReq: 0,
   };
   for (const k of ["engine", "preset", "p", "step"]) {
@@ -1675,6 +1717,23 @@ function makeMockDevice(opt = {}) {
         if (!rc) st[key] = val;
         b(rc || (opt.noFlash ? 3 : opt.deferSettings ? 4 : 0)); b(id ?? 127); b(val ?? 127); uiState(); break;
       }
+      case CMD.MENU_DESC: {
+        if (opt.noMenu || opt.noFm6 || !syncCaps() || a.length !== 1) return null;
+        const i = a[0], m = MENU[i], names = m && (m.names || st.palettes);
+        b(i);
+        if (!m) { b(127); break; }
+        b(m.id); b(0); v(m.id === 0 ? st.palette : st.menu[i]); v(0); v(names.length - 1); s(m.name); names.forEach(s);
+        break;
+      }
+      case CMD.MENU_SET: {
+        if (opt.noMenu || opt.noFm6 || !syncCaps() || a.length !== 3) return null;
+        const i = MENU.findIndex((m) => m.id === a[0]), m = MENU[i], val = v14dec(a[1], a[2]);
+        if (!m) { b(1); b(a[0]); v(val); break; }
+        const x = Math.max(0, Math.min((m.names || st.palettes).length - 1, val));
+        if (m.id === 0) st.palette = x; else st.menu[i] = x;
+        b(opt.noFlash ? 3 : opt.deferSettings ? 4 : 0); b(m.id); v(x);
+        break;
+      }
       case CMD.FAV_GET: case CMD.FAV_SET: {
         if (!(st.uiCaps & 8)) { b(2); break; }
         const engine = a[0], preset = v14dec(a[1], a[2]), count = a[3];
@@ -1718,7 +1777,7 @@ function makeMockDevice(opt = {}) {
         if (!opt.legacy && !opt.v3 && !opt.v5) {
           b(16);
           if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noBackup) { b(0x42); b(1); b(3); } if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(0); }
-            if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); } } }   /* (FM6 v2: no bank, preset patches) */
+            if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); if (!opt.noMenu) { b(0x4E); b(1); b(MENU.length); } } } }   /* (FM6 v2: no bank, preset patches; MENU settings) */
         }
         break;
       case CMD.GET: case CMD.SET: {
@@ -2078,7 +2137,7 @@ function makeMockDevice(opt = {}) {
   ];
   return {
     state: st, sim,
-    tables: { TP, GP, ENG, PATTERNS, P_COUNT, G_COUNT, NSTEP, P_E0, G_ENGSEL, P_SLCR, NTRK,
+    tables: { TP, GP, ENG, PATTERNS, P_COUNT, G_COUNT, NSTEP, P_E0, G_ENGSEL, P_SLCR, NTRK, MENU,
       FM6: { bank: 0, own: FM6_OWN, init: FM6.INIT_PK, factory: FM6.FACTORY_PK } },   /* test_web.mjs: == the firmware */
     stop: () => timers.forEach(clearInterval),
     access: { sysexEnabled: true, inputs: new Map([[input.id, input]]), outputs: new Map([[output.id, output]]), onstatechange: null },
@@ -2156,5 +2215,5 @@ export {
   LIB, paramKeys, sameKeys, remapParams, tailParams, patNorm, patternFromSteps, stepsFromPattern, patternUsed, gridFromSteps,
   cleanPatch, libraryFile, readLibraryFile, FLASH_OPT, bank, capturePatch, TRACK_OWN, P_CHORD, trackOwn, auditionPatch,
   startWatch, mixer, FM6, FM4, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice,
-  readDevicePreferences, aliasOf, divLength, enumShown, ENGINE_ORDER, engineOrder, devicePresetRows,
+  readDevicePreferences, aliasOf, divLength, enumShown, ENGINE_ORDER, engineOrder, devicePresetRows, MENU, readDeviceMenu,
 };

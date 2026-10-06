@@ -124,6 +124,7 @@ function openSettings(on) {
   inSettings = on;
   $("#settings").setAttribute("aria-pressed", String(on));
   if (!on) return go(place);
+  if (dev && dev.loaded) dev.readMenu();             /* (not pushed: read as settings open) */
   for (const b of $$(".place")) b.setAttribute("aria-selected", "false");
   for (const s of $$(".screen")) s.hidden = s.id !== "s-settings";
 }
@@ -240,7 +241,13 @@ async function connect() {
     d.on("projects", () => project.refresh());
     d.on("song", () => project.refresh());
     d.on("error", (e) => sayK(e.message === "noreply" ? "noreply" : "error", e.message === "noreply" ? "" : e.message));
-    d.on("closed", (reason) => { if (dev === d) { dev = null; $("#update").hidden = true; renderAll(); relabel(); sayK(reason); } });
+    d.on("menu", (items) => settings.menu(items));
+    d.on("closed", (reason) => {
+      if (dev !== d) return;
+      dev = null; $("#update").hidden = true; renderAll(); relabel(); sayK(reason);
+      /* USB SERIAL switched: the device leaves the bus and comes back (a port event connects again; else this) */
+      if (reason === "usb") setTimeout(() => { if (!dev && wantConnected && !connecting) connect(); }, 2500);
+    });
     await d.open();
     if (dev !== d) return;
     await lib.adopt(d);

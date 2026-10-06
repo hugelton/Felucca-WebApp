@@ -2,11 +2,13 @@
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 //
 // Settings: the device's globals (BPM, swing, tune, MIDI IN), its display preferences (theme, font, MIDI monitor),
+// its MENU settings (1.0.4: LEDS .. USB SERIAL, as the device lists them),
 // the editor's own (display, text size, language: kept in this browser) and what the device reported.
 
 import { el, store } from "./dom.js";
 import { G_SKIP, HEAD_IC, LAYOUT, paramIcon, placedGlobals, visible } from "./layout.js";
 import { card, cells, paramRow } from "./parts.js";
+import { MENU_ICON } from "./paramicons.js";
 import { knownLayout } from "./device.js";
 import { LANGS, getLang, setLang, t } from "./text.js";
 
@@ -20,7 +22,7 @@ export function applyEditorPrefs() {
 }
 
 export function settingsScreen(root, ui) {
-  const rows = new Map();
+  const rows = new Map(), menuRows = new Map();
   let dev = null;
 
   function globals() {
@@ -51,6 +53,23 @@ export function settingsScreen(root, ui) {
       out.push(paramRow(d, v, async (nv) => { const rc = await dev.changePreference(id, nv); ui.prefResult(rc); }).el);
     }
     return card(t("device"), "port_usb_c", el("div", { class: "rows" }, ...out));
+  }
+
+  /* the device's MENU (its order, its names); COLOR when the display card does not already show the theme */
+  function menu() {
+    const items = (dev.menu || []).filter((m) => !(m.id === 0 && dev.preferences && dev.preferences.state.caps & 1));
+    if (!items.length) return null;
+    const out = items.map((m) => {
+      const d = m.kind === 0 ? { fmt: 8, min: m.min, max: m.max, def: m.min, label: m.name, unit: "", names: m.names }
+        : { fmt: 0, min: m.min, max: m.max, def: m.min, label: m.name, unit: m.unit, names: [] };
+      const r = paramRow(d, m.value, async (v) => {
+        if (m.name === "USB SERIAL" && v !== m.value && !(await ui.confirm(t("usbQ")))) { r.update(m.value, false); return; }
+        ui.prefResult(await dev.menuSet(m.id, v));
+      }, { icon: MENU_ICON[m.name] || "symbol_cog" });
+      menuRows.set(m.id, r);
+      return r.el;
+    });
+    return card("MENU", "control_menu_lines", el("div", { class: "rows" }, ...out));
   }
 
   function editor() {
@@ -85,14 +104,18 @@ export function settingsScreen(root, ui) {
   return {
     show(device) {
       dev = device;
-      rows.clear();
+      rows.clear(); menuRows.clear();
       const grid = el("div", { class: "grid" });
       if (dev && dev.dump) grid.append(globals());
       const disp = dev && dev.dump ? display() : null;
       if (disp) grid.append(disp);
+      const mn = dev && dev.dump ? menu() : null;
+      if (mn) grid.append(mn);
       grid.append(editor(), system());
       root.replaceChildren(grid);
     },
     param(s, id, v) { if (s === 1 && rows.has(id)) rows.get(id).update(v); },
+    /* the MENU read again (settings opened, a value set): the shown rows follow */
+    menu(items) { for (const m of items || []) if (menuRows.has(m.id)) menuRows.get(m.id).update(m.value, false); },
   };
 }

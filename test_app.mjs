@@ -142,6 +142,34 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   ok(d.steps.every((x) => !stepOn(x) && !x.n && !x.hit) && d.motion.count === 0, "device: clear sequence empties every step and the motion");
   d.close();
 }
+{
+  /* the MENU settings (1.0.4): read on open and again on request, set (clamped), USB SERIAL ends the connection */
+  const m = proto.makeMockDevice();
+  const d = new Device(m.access);
+  await d.open();
+  ok(d.info.menuCount === 12 && d.menu && d.menu.length === 12 && d.menu[4].name === "LEDS" && d.menu[4].value === 2,
+    "menu: read on open (12 items, LEDS DIM HI)");
+  const seen = [];
+  d.on("menu", (x) => seen.push(x.length));
+  ok(await d.menuSet(4, 3) === 0 && m.state.menu[4] === 3 && d.menu[4].value === 3 && seen.length === 1, "menu: a value set (LEDS INV)");
+  m.state.menu[9] = 2;
+  await d.readMenu();
+  ok(d.menu[9].value === 2 && seen.length === 2, "menu: read again (a change made on the device)");
+  await d.menuSet(5, 40);
+  ok(d.menu[5].value === 3, "menu: the device's value after clamping (HOLD 40 -> 3)");
+  await d.menuSet(0, 2);
+  ok(m.state.palette === 2 && d.preferences.state.palette === 2, "menu: COLOR is the display preference (read again)");
+  let why = null;
+  d.on("closed", (r) => { why = r; });
+  await d.menuSet(11, 0);
+  ok(!d.closed && why === null, "menu: USB SERIAL set to what it is: the connection stays");
+  await d.menuSet(11, 1);
+  ok(d.closed && why === "usb" && m.state.menu[11] === 1, "menu: USB SERIAL switched: the connection ends (\"usb\": the page connects again)");
+  const old = new Device(proto.makeMockDevice({ noMenu: true }).access);
+  await old.open();
+  ok(!old.info.menuCount && old.menu === null && await old.readMenu() === null, "menu: firmware without MENU settings is not asked");
+  old.close();
+}
 
 
 /* ------------------------------------------------------------------ MIX --- */

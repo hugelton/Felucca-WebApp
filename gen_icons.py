@@ -8,7 +8,7 @@
 DIR: a Felucca checkout's felucca/ (default: the folder above this file, or FELUCCA_FIRMWARE). Read:
 src/icons.c (ICON_MAP: label -> ICON_*, WAVE_ICON: a wave's name -> ICON_*) and tools/gen_aa_icons.py
 (LEGACY / EXTRA: the icon's name -> the glyph, a tuple = the first the font has), and the MOD matrix's
-mod_src_icon / mod_dst_icon. So a parameter shows the
+mod_src_icon / mod_dst_icon, and the MENU rows' (src/menu_items.c, src/ui_menu.c). So a parameter shows the
 icon the device draws for it. --check compares OUT.js with what this would write.
 """
 import ast
@@ -41,6 +41,17 @@ def dicts(py):
     return out
 
 
+def menu_icons(fw, glyph):
+    """the MENU rows' icons (ui_menu.c draw_menu's ICO, in menu_items.c MI_NAME's order): name -> glyph"""
+    if not (fw / "src" / "menu_items.c").exists():
+        return {}
+    names = re.search(r"MI_NAME\[MI_COUNT\] = \{(.*?)\};", (fw / "src" / "menu_items.c").read_text(), re.S)
+    ico = re.search(r"static const uint16_t ICO\[MI_COUNT\] = \{(.*?)\};", (fw / "src" / "ui_menu.c").read_text(), re.S)
+    if not names or not ico:
+        raise SystemExit("gen_icons.py: no MI_NAME (menu_items.c) or ICO (ui_menu.c)")
+    return {n: glyph.get(i) or glyph.get("ICON_GENERIC") for n, i in zip(re.findall(r'"([^"]+)"', names.group(1)), re.findall(r"ICON_\w+", ico.group(1)))}
+
+
 def table(fw):
     cmap = {name for name in TTFont(str(HERE / "fukiai.ttf")).getBestCmap().values()}
     names = dicts(fw / "tools" / "gen_aa_icons.py")
@@ -70,7 +81,7 @@ def table(fw):
         if not m:
             raise SystemExit(f"gen_icons.py: no {fn} table in icons.c")
         return [glyph.get(ic) or glyph.get("ICON_GENERIC") for ic in re.findall(r"ICON_\w+", m.group(1))]
-    mods = {"src": arr("mod_src_icon"), "dst": arr("mod_dst_icon")}
+    mods = {"src": arr("mod_src_icon"), "dst": arr("mod_dst_icon"), "menu": menu_icons(fw, glyph)}
     special = {k: glyph.get(k) for k in ("ICON_LFO_WAVE", "ICON_DIVISION", "ICON_CUTOFF", "ICON_NOISE", "ICON_RATE",
                                           "ICON_SLICE", "ICON_GATE", "ICON_ORDER", "ICON_GENERIC")}
     return labels, waves, special, mods, sorted(set(missing))
@@ -87,7 +98,9 @@ def js(fw):
             f"export const SPECIAL = {q(special)};\n"
             "/* the MOD matrix: a source's icon by its value, a destination's (before E1..E8: those are the engine's own) */\n"
             f"export const MOD_SRC = {json.dumps(mods['src'])};\n"
-            f"export const MOD_DST = {json.dumps(mods['dst'])};\n"), missing
+            f"export const MOD_DST = {json.dumps(mods['dst'])};\n"
+            "/* the MENU settings' rows, by name */\n"
+            f"export const MENU_ICON = {q(mods['menu'])};\n"), missing
 
 
 def main():

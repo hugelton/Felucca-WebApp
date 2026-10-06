@@ -185,3 +185,20 @@ export const SPECIAL = {
 /* the MOD matrix: a source's icon by its value, a destination's (before E1..E8: those are the engine's own) */
 export const MOD_SRC = ["symbol_modular", "waveform_sine", "function_env_adsr_lin", "symbol_thunder_f", "symbol_keyboard", "symbol_dice", "symbol_modular", "port_midi", "symbol_volume"];
 export const MOD_DST = ["symbol_modular", "waveform_pitch", "function_filter_lpf", "waveform_variant_four", "symbol_volume", "symbol_pan", "function_signal_clip", "symbol_waves", "symbol_echo", "symbol_spring", "symbol_speed", "waveform_cos"];
+/* the MENU settings' rows, by name */
+export const MENU_ICON = {
+  "COLOR": "symbol_primitives_o",
+  "STYLE": "waveform_variant_four",
+  "LARGE": "control_arrow_both",
+  "ANIM": "symbol_speed",
+  "LEDS": "symbol_star_o",
+  "HOLD": "symbol_stopwatch",
+  "KNOB ACCEL": "ui_knob",
+  "FX LATCH": "control_fx",
+  "BPM LOCK": "symbol_tempo",
+  "SPEAKER EQ": "control_speaker_2",
+  "USB LEVEL": "port_usb_c",
+  "USB SERIAL": "symbol_document",
+  "CALIBRATION": "symbol_doctor",
+  "ABOUT": "symbol_info_f",
+};
