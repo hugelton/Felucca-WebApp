@@ -59,12 +59,14 @@ nav.rail { grid-row: 2; display: flex; flex-direction: column; gap: 4px; padding
 
 main { grid-row: 2; padding: 4px 16px 24px 4px; min-width: 0; }
 .screen[hidden] { display: none; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--gap); align-items: start; }
+/* masonry: cards of any height packed into columns (300 px and up); a wide card spans them all */
+.grid { display: block; columns: 300px; column-gap: var(--gap); }
+.grid > * { break-inside: avoid; margin: 0 0 var(--gap); }
 .card { background: var(--surf); border-radius: var(--r); padding: 12px; min-width: 0; }
 .card h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: .75rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--mid); }
 .card h2 .ic { font-size: 1rem; }
 .card h2 .aside { margin-left: auto; font-weight: 500; color: var(--mid); letter-spacing: .04em; }
-.wide { grid-column: 1 / -1; }
+.grid > .wide { column-span: all; }
 
 /* ---- the gauge row: value left, label right, fill from the left (one parameter = one row) ---- */
 .rows { display: flex; flex-direction: column; gap: 4px; }
@@ -312,7 +314,7 @@ input.text.wide { width: 100%; margin-bottom: 16px; }
 
 /* ---- SAMPLES ---- */
 .subtabs { max-width: 320px; margin-bottom: var(--gap); }
-.grid.samples { grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
+.grid.samples { columns: 420px; }
 .slothead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .slothead b { color: var(--theme); font-weight: 600; font-size: 1rem; }
 .slothead .btn { margin-left: auto; }

@@ -6,7 +6,7 @@
 // or START / END typed), a preview at the stored rate; then WRITE puts the draft in the slot.
 
 import { SMP, noteName, parseNote, resample, zoomView } from "./proto.js";
-import { el, ic } from "./dom.js";
+import { el, ic, put } from "./dom.js";
 import { Draft, MAX_DATA, NAME_MAX, cleanName, decodeAudio } from "./samples.js";
 import { card, help } from "./parts.js";
 import { t } from "./text.js";
@@ -235,7 +235,7 @@ export function samplesScreen(root, ui) {
     inputSel.value = recDevice;
     inputSel.addEventListener("change", () => { recDevice = inputSel.value; });
     const acts = el("div", { class: "acts wrap" });
-    const drawActs = () => acts.replaceChildren(
+    const drawActs = () => put(acts, 
       el("button", { type: "button", class: "btn", disabled: busy || recActive() || d.full, onclick: () => file.click() }, ic("symbol_folder_open"), t("files")),
       el("button", { type: "button", class: "btn" + (on ? " recon" : ""), disabled: busy || recStarting || (!!rec && (!on || rec.stopping)), onclick: () => (on ? recStop() : recStart(k)) },
         ic(on ? "control_stop_f" : "control_rec_f"), on ? "STOP" : "REC"),

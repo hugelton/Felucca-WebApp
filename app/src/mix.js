@@ -6,7 +6,7 @@
 // each other (device.js mixFromDump). The device sends no levels, so there is no meter.
 
 import { F, fmtValue } from "./proto.js";
-import { el, ic } from "./dom.js";
+import { el, ic, put } from "./dom.js";
 import { help, paramRow } from "./parts.js";
 import { t } from "./text.js";
 
@@ -32,7 +32,7 @@ export function mixScreen(root) {
     const showLevel = (v) => {
       fader.style.setProperty("--p", (v / 127 * 100).toFixed(1) + "%");
       const [a, u] = fmtValue(lvDesc, v);
-      lvl.replaceChildren(document.createTextNode(a), u ? el("small", { text: u }) : null);
+      put(lvl, document.createTextNode(a), u ? el("small", { text: u }) : null);
       input.setAttribute("aria-valuetext", u ? `${a} ${u}` : a);
     };
     const level = (v, final) => { showLevel(v); help(`${t("track")} ${k + 1} ${lvDesc.label}`, input.getAttribute("aria-valuetext")); dev.setMix(k, v, x().mute); };

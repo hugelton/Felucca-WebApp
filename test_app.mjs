@@ -590,6 +590,30 @@ function dir0() { return mkdtempSync(join(tmpdir(), "felucca-tokens-")); }
     const hits = files.filter((f) => BRANDS.test(readFileSync(f, "utf8")));
     ok(!hits.length, "page: no makers' or instruments' names in what ships" + (hits.length ? " (" + hits.map((f) => f.split("/").pop()).join(", ") + ")" : ""));
   }
+  {
+    /* replaceChildren / append write null as the text "null": a child that may be null goes through put() (dom.js) or el() */
+    /* each call's whole argument list, over lines (brackets balanced) */
+    const calls = (src) => {
+      const out = [], rx = /\.(replaceChildren|append)\(/g;
+      let m;
+      while ((m = rx.exec(src))) {
+        let i = m.index + m[0].length, depth = 1;
+        while (i < src.length && depth) { const c = src[i++]; if (c === "(") depth++; else if (c === ")") depth--; }
+        out.push([src.slice(0, m.index).split("\n").length, src.slice(m.index + m[0].length, i - 1)]);
+      }
+      return out;
+    };
+    const bad = readdirSync(join(APP, "src")).filter((f) => f.endsWith(".js")).flatMap((f) =>
+      calls(readFileSync(join(APP, "src", f), "utf8")).map(([n, args]) => [f, n, args])
+        .filter(([, , args]) => {
+          /* the top-level arguments only (a null inside el(...) is el's to drop) */
+          const top = []; let depth = 0, cur = "";
+          for (const c of args) { if ("([{".includes(c)) depth++; else if (")]}".includes(c)) depth--; if (c === "," && !depth) { top.push(cur); cur = ""; } else cur += c; }
+          top.push(cur);
+          return top.some((x) => /^\s*null\s*$|\?[^?]*:\s*null\s*$/.test(x));
+        }));
+    ok(!bad.length, "page: no possibly-null child given to replaceChildren / append" + (bad.length ? " (" + bad.map(([f, n]) => f + ":" + n).join(", ") + ")" : ""));
+  }
   ok(!/\binnerHTML\b/.test(src), "page: no innerHTML (elements are built)");
   /* the one-file page: no module script left, the code compiles, the stylesheets inlined */
   const dir = mkdtempSync(join(tmpdir(), "felucca-page-"));

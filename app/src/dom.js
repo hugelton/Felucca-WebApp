@@ -21,6 +21,9 @@ export function el(tag, attrs = {}, ...kids) {
   return e;
 }
 
+/* node's children become kids, null / false left out (replaceChildren itself would write "null") */
+export function put(node, ...kids) { node.replaceChildren(...kids.filter((x) => x != null && x !== false)); return node; }
+
 export const glyph = (name) => (GLYPH[name] ? String.fromCodePoint(GLYPH[name]) : "");
 export const ic = (name, cls = "") => el("span", { class: "ic" + (cls ? " " + cls : ""), "aria-hidden": "true", text: glyph(name) });
 /* the static markup's <span data-i="name"> */

@@ -6,7 +6,7 @@
 // screen readers and touch work as the platform does. Plus cells (a choice among a few) and the help bar hook.
 
 import { F, aliasOf, enumShown, fmtValue } from "./proto.js";
-import { el, ic } from "./dom.js";
+import { el, ic, put } from "./dom.js";
 
 let helpSink = () => {};
 /* the help bar: the name of what was touched and its value, nothing else */
@@ -34,7 +34,7 @@ function gaugeRow(d, value, onset, opt, label) {
   const show = (v) => {
     cur = v;
     const [x, u] = fmt(d, v, opt.rename);
-    val.replaceChildren(document.createTextNode(x), u ? el("small", { text: u }) : null);
+    put(val, document.createTextNode(x), u ? el("small", { text: u }) : null);
     row.style.setProperty("--p", ((v - d.min) / (d.max - d.min || 1) * 100).toFixed(2) + "%");
     input.setAttribute("aria-valuetext", u ? `${x} ${u}` : x);
   };
@@ -81,7 +81,7 @@ function choiceRow(d, value, onset, opt, label) {
   }
   const row = el("div", { class: "gauge choice" }, val,
     el("span", { class: "l" }, opt.icon ? ic(opt.icon) : null, el("span", { class: "lbl", text: label })), select);
-  const show = (v) => { const [x, u] = fmt(d, v, opt.rename); val.replaceChildren(document.createTextNode(x), u ? el("small", { text: u }) : null); select.value = String(v); };
+  const show = (v) => { const [x, u] = fmt(d, v, opt.rename); put(val, document.createTextNode(x), u ? el("small", { text: u }) : null); select.value = String(v); };
   select.addEventListener("change", () => { show(+select.value); help(label, val.textContent); onset(+select.value, true); });
   select.addEventListener("focus", () => help(label, val.textContent));
   select.addEventListener("pointerenter", () => help(label, val.textContent));
