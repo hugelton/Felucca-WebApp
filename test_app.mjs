@@ -43,7 +43,8 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
     "device: live sync (WATCH 3), the mixer and the user bank");
   const st = d.storage();
   ok(st.slotKiB === d.smp.slotKiB && st.samples.length === d.smp.nslots && st.presets[1] === 32 && st.projects[1] === 4
-     && (!d.info.fm6 || (st.fm6 && st.fm6[1] === d.info.fm6.bank)), "device: storage summary (samples KiB, slots used)");
+     && (!d.info.fm6 || (d.info.fm6.bank ? st.fm6 && st.fm6[1] === d.info.fm6.bank : st.fm6 === null)),
+    "device: storage summary (samples KiB, slots used; no FM6 bank since 1.0.3)");
   /* an edit: the reply's value is kept, the device has it */
   const cut = d.pdesc.findIndex((x) => x && x.label === "RATE");
   const v = await d.setParam(0, cut, 77);
@@ -308,7 +309,7 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   const m = proto.makeMockDevice({ auto: false });
   const d = new Device(m.access);
   await d.open();
-  ok(d.backupCaps() === 3 && d.info.fm6 && d.info.fm6.bank === 27 && d.info.syncCaps === 3,
+  ok(d.backupCaps() === 3 && d.info.fm6 && d.info.fm6.bank === 0 && d.info.fm6.caps === 3 && d.info.syncCaps === 3,
     "project: INFO has the backup tag (42 01 03) before FM6's and the sync tag, as the firmware's");
   const empty = d.slotUsed.indexOf(0);
   const sv = await d.project(1, empty);
@@ -329,7 +330,7 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   }
   /* the full backup: saved, restored, saved again: the same objects */
   const file = await d.backupSave();
-  ok(file && file.format === "felucca-backup" && file.objects.length === 12 && file.objects[2 + empty].size === 3584, "project: a full backup (12 objects)");
+  ok(file && file.format === "felucca-backup" && file.objects.length === 13 && file.objects[2 + empty].size === 3584, "project: a full backup (13 objects)");
   const archive = d.backupCheck(JSON.stringify(file));
   ok((await d.backupRestore(archive)) && d.loaded, "project: restored, everything read again");
   const again = await d.backupSave();

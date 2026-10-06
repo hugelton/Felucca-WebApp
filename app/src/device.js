@@ -181,7 +181,7 @@ export class Device {
       samples: s ? s.slots.map((x, k) => ({ slot: k, name: x.zones ? x.name : "", kib: x.zones ? x.kib : 0 })) : [],
       presets: this.bank ? [used(this.bank.slots.map((x) => x.used)), this.bank.total] : null,
       projects: [used(this.slotUsed), this.slotUsed.length],
-      fm6: this.fm6 ? [used(this.fm6.slots.slice(this.fm6.factory).map((x) => x.used)), this.fm6.bank] : null,
+      fm6: this.fm6 && this.fm6.bank ? [used(this.fm6.slots.slice(this.fm6.factory).map((x) => x.used)), this.fm6.bank] : null,   /* (1.0.3: no bank) */
     };
   }
 
@@ -349,7 +349,8 @@ export class Device {
   async readSlot(slot) {
     const u = await bank.get((r, o) => this.rq(r, o), this.info, slot);
     if (!u.used) return null;
-    const pt = { name: u.name, engine: u.engine, engineName: this.info.engines[u.engine], p: u.p, pattern: u.pattern, grid: u.grid, tags: ["device"] };
+    const pt = { name: u.name, engine: u.engine, engineName: this.info.engines[u.engine], p: u.p, pattern: u.pattern, grid: u.grid, tags: ["device"],
+      fm6: u.fm6 };   /* (an FM6 sound's own patch, 1.0.3) */
     return reservedFm4(this.info.engines, u.engine) ? fromDigital(pt, this.info.engines, this.info.pe0) : pt;
   }
   bankGet(slot) { return this.op(() => this.readSlot(slot)); }
@@ -361,7 +362,7 @@ export class Device {
         if (!x.used) continue;
         this.emit("progress", { what: "bank", n: x.slot + 1, total: this.bank.total });
         const u = await bank.get((r, o) => this.rq(r, o), this.info, x.slot);
-        if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, pattern: u.pattern, grid: u.grid, slot: x.slot,
+        if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, pattern: u.pattern, grid: u.grid, slot: x.slot, fm6: u.fm6,
           engineName: reservedFm4(this.info.engines, u.engine) ? "DIGITAL" : this.info.engines[u.engine] });
       }
       return out;
@@ -374,7 +375,7 @@ export class Device {
       const keep4 = p.fm4 && this.info.engines[1] === "-" && p.fm4.length === this.info.pcount;   /* a converted DIGITAL sound:
                                                      its DIGITAL values as engine 1 (the device converts them on load) */
       this.flashRc(await bank.put((r, o) => this.rq(r, o), slot, keep4 ? { ...p, engine: 1, name: upName(p.name), p: this.fullParams({ ...p, p: p.fm4 }) }
-        : { ...p, name: upName(p.name), p: this.fullParams(p) }));
+        : { ...p, name: upName(p.name), p: this.fullParams(p) }, this.info));
       await this.refreshSlot(slot);
       this.emit("storage", this.storage());
       return true;
@@ -447,7 +448,8 @@ export class Device {
   }
   /* INFO 42: bit 0 read, bit 1 restore */
   backupCaps() { return this.info ? this.info.backupCaps | 0 : 0; }
-  /* -> the backup file (felucca-backup v1: the music, settings, projects, user banks, the FM6 bank, the sample slots) */
+  /* -> the backup file (felucca-backup v1: the music, settings, projects, user banks, the FM6 bank of 1.0..1.0.2 or (1.0.3)
+     the user presets' FM6 patches, the sample slots) */
   backupSave(onProgress) {
     return this.op(() => captureBackup((r, o) => this.rq(r, o), this.info.version, onProgress));
   }

@@ -364,15 +364,16 @@ async function editorFm4() {
   let d0 = E.parse[C.DUMP](await rq(E.req.dump()), info);
   await rq(E.req.set(1, 20, 1));
   let d = E.parse[C.DUMP](await rq(E.req.dump()), info);
+  const owned = (p) => p.map((v, i) => (i === info.pe0 + 7 ? 8 : v));   /* (1.0.3: the converted patch is the track's own: SLOT OWN) */
   let want = E.FM4.convert(digital(0, d0.p), info.pe0);
-  ok(d.engine === 12 && d.preset === 0 && eq(d.p, want.p) && eq(await fm6Of(), E.FM6.pack(want.voice)),
-    "DIGITAL retired: SET G_ENGSEL 1 -> FM6 with E.PIANO converted (its own patch, PTCH TINE EP)");
+  ok(d.engine === 12 && d.preset === 0 && eq(d.p, owned(want.p)) && eq(await fm6Of(), E.FM6.pack(want.voice)),
+    "DIGITAL retired: SET G_ENGSEL 1 -> FM6 with E.PIANO converted (its own patch, SLOT OWN, preset TINE EP)");
   d0 = d;
   await rq(E.req.preset(1, 5));
   d = E.parse[C.DUMP](await rq(E.req.dump()), info);
   want = E.FM4.convert(digital(5, d0.p), info.pe0);
-  ok(d.engine === 12 && d.preset === 4 && eq(d.p, want.p) && E.FM6.name(E.FM6.unpack(await fm6Of())) === "PAD",
-    "DIGITAL retired: PRESET 1 5 (its PAD) -> FM6, the converted patch named PAD, PTCH / preset FM6 PAD");
+  ok(d.engine === 12 && d.preset === 4 && eq(d.p, owned(want.p)) && E.FM6.name(E.FM6.unpack(await fm6Of())) === "PAD",
+    "DIGITAL retired: PRESET 1 5 (its PAD) -> FM6, the converted patch named PAD, SLOT OWN, preset FM6 PAD");
   /* library files of DIGITAL sounds: today's 91 parameters, 89 (P_E0 81), 69 (P_E0 61, no OP ENV) */
   const base = Array.from({ length: 91 }, (_, i) => (i < 83 ? pdesc[i].def : 0));
   const pad = E.FM4.presetValues(base.slice(), 5, 83);
@@ -691,7 +692,10 @@ async function editorLive() {
       "live: firmware before the sync tag echoes the editor's PRESET as RELOAD (the editor skips it)");
     o.done();
     const fw = E.parse[C.INFO]([88, 0, 0, 91, 27, 64, 83, 4, 16, 0x55, 1, 9, 0x4d, 1, 64, 1, 0x42, 1, 3, 0x46, 1, 8, 27, 0x53, 1, 3]);
-    ok(fw.backupCaps === 3 && fw.fm6 && fw.fm6.bank === 27 && fw.syncCaps === 3, "live: the firmware's INFO trailer: backup, FM6, then the sync tag");
+    ok(fw.backupCaps === 3 && fw.fm6 && fw.fm6.bank === 27 && !fw.fm6.caps && fw.syncCaps === 3,
+      "live: the INFO trailer of 1.0.2: backup, FM6 (a bank), then the sync tag; no FM6 v2");
+    const f3 = E.parse[C.INFO]([88, 0, 0, 91, 27, 64, 83, 4, 16, 0x55, 1, 9, 0x4d, 1, 64, 1, 0x42, 1, 3, 0x46, 1, 8, 0, 0x53, 1, 3, 0x50, 1, 3]);
+    ok(f3.fm6 && f3.fm6.bank === 0 && f3.fm6.caps === 3 && f3.syncCaps === 3, "live: the INFO trailer of 1.0.3: FM6 v2 after the sync tag (no bank, preset patches)");
   }
 
   /* PING keeps the watch on; without requests it ends */
@@ -937,29 +941,54 @@ async function editorFm6() {
   [...m.access.inputs.values()][0].onmidimessage = (e) => link.receive(e.data);
   const rq = (x) => link.request(x), C = E.CMD;
   const info = E.parse[C.INFO](await rq(E.req.info()));
-  ok(info.fm6 && info.fm6.factory === 8 && info.fm6.bank === 27, "FM6: INFO tag (8 factory, 27 bank slots)");
+  ok(info.fm6 && info.fm6.factory === 8 && info.fm6.bank === 0 && info.fm6.caps === 3, "FM6: INFO tag (8 factory, no bank; FM6 v2 caps 3)");
   let list = E.parse[C.FM6_LIST](await rq(E.req.fm6List()));
-  ok(list.slots.length === 35 && list.slots[0].name === "TINE EP" && !list.slots[8].used, "FM6: LIST names the factory patches, the bank empty");
+  ok(list.factory === 8 && list.bank === 0 && list.slots.length === 8 && list.slots[0].name === "TINE EP", "FM6: LIST names the factory patches, nbank 0");
   const mine = F6.setName(F6.factory(2), "my bass");
   let p = E.parse[C.FM6_PUT](await rq(E.req.fm6Put(1, 4, F6.pack(mine))));
-  list = E.parse[C.FM6_LIST](await rq(E.req.fm6List()));
-  ok(!p.rc && list.slots[12].used && list.slots[12].name === "MY BASS", "FM6: PUT into bank B5, listed by name");
   let g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(1, 4)));
-  ok(!g.rc && eq(g.packed, F6.pack(mine)), "FM6: GET bank B5 as stored");
-  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(1, 5)));
-  ok(g.rc === 2 && !g.packed, "FM6: GET of an empty slot: rc 2");
-  /* the selected track to FM6, PTCH B5 (at the pe0 INFO gives): the track plays that patch */
-  const eng = info.engines.indexOf("FM6");
+  const e0 = E.parse[C.FM6_ERASE](await rq(E.req.fm6Erase(4)));
+  ok(p.rc === 3 && g.rc === 3 && !g.packed && e0.rc === 3, "FM6: the bank (target 1): GET / PUT / ERASE answer rc 3, no bank");
+  /* the selected track to FM6; send a voice: the track's own patch, SLOT OWN; F2 and back to OWN */
+  const eng = info.engines.indexOf("FM6"), slotId = info.pe0 + 7;
   await rq(E.req.set(1, 20, eng));
-  await rq(E.req.set(0, info.pe0 + 7, 8 + 4));
+  p = E.parse[C.FM6_PUT](await rq(E.req.fm6Put(0, 0, F6.pack(mine))));
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
-  ok(!g.rc && F6.name(F6.unpack(g.packed)) === "MY BASS", `FM6: PTCH (P_E0 + 7 = ${info.pe0 + 7}) B5 loads the bank patch into the track`);
+  let sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value;
+  ok(!p.rc && F6.name(F6.unpack(g.packed)) === "MY BASS" && sv === 8, `FM6: send to the track: its own patch, SLOT (P_E0 + 7 = ${slotId}) OWN`);
+  await rq(E.req.set(0, slotId, 1));
+  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
+  ok(eq(g.packed, F6.FACTORY_PK[1]), "FM6: SLOT F2 loads the factory patch");
+  await rq(E.req.set(0, slotId, 8));
+  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
+  ok(F6.name(F6.unpack(g.packed)) === "MY BASS", "FM6: SLOT back to OWN brings the own patch back");
   const edited = F6.unpack(g.packed); edited[F6.VI.ALG] = 31;
   p = E.parse[C.FM6_PUT](await rq(E.req.fm6Put(0, 0, F6.pack(edited))));
   g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
   ok(!p.rc && F6.unpack(g.packed)[F6.VI.ALG] === 31, "FM6: PUT to the track: its own patch changed");
-  const e = E.parse[C.FM6_ERASE](await rq(E.req.fm6Erase(4)));
-  ok(!e.rc && !E.parse[C.FM6_LIST](await rq(E.req.fm6List())).slots[12].used, "FM6: ERASE empties B5");
+  /* a user preset carries it (target 3, the librarian's bank.get / put) */
+  E.parse[C.UP_STORE](await rq(E.req.upStore(20, "KEEP ME")));
+  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(3, 20)));
+  ok(!g.rc && eq(g.packed, F6.pack(edited)), "FM6: UP_STORE of an FM6 track keeps its patch (FM6_GET user 21)");
+  await rq(E.req.fm6Put(0, 0, F6.FACTORY_PK[0]));
+  await rq(E.req.upLoad(20));
+  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
+  sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value;
+  ok(eq(g.packed, F6.pack(edited)) && sv === 8, "FM6: UP_LOAD plays it again, SLOT OWN");
+  const u = await E.bank.get(rq, info, 20);
+  ok(u.used && eq(u.fm6, F6.pack(edited)), "FM6: the librarian reads a user preset with its patch");
+  const other = F6.pack(F6.setName(F6.factory(5), "OTHER"));
+  let rc = await E.bank.put(rq, 21, { ...u, name: "COPY", fm6: other }, info);
+  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(3, 21)));
+  ok(rc === 0 && !g.rc && eq(g.packed, other), "FM6: the librarian writes a user preset with its patch (UP_PUT, then FM6_PUT user)");
+  rc = await E.bank.put(rq, 22, { ...u, name: "OLD FW", fm6: other }, { ...info, fm6: { ...info.fm6, caps: 0 } });
+  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(3, 22)));
+  ok(rc === 0 && g.rc === 2, "FM6: firmware without preset patches (1.0.2): UP_PUT only");
+  const lf = E.readLibraryFile(JSON.parse(JSON.stringify(E.libraryFile("library", [{ ...u, fm6: other }], { engines: info.engines }))), { engines: info.engines });
+  ok(lf.patches.length === 1 && eq(lf.patches[0].fm6, other) && !("fm4" in lf.patches[0]), "FM6: a library file keeps an FM6 sound's patch (fm6)");
+  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(3, 0)));
+  p = E.parse[C.FM6_PUT](await rq(E.req.fm6Put(3, 0, other)));
+  ok(g.rc === 2 && p.rc === 1, "FM6: a user preset of another engine: GET rc 2, PUT rc 1");
   p = E.parse[C.FM6_PUT](await rq([C.FM6_PUT, [0, 9, 1, 2, 3]]));
   ok(p.rc === 1, "FM6: a short record or a fifth track: rc 1");
   link.close(); m.stop();
@@ -1027,16 +1056,17 @@ function fm6Tolerant(F6, voices, bank, one) {
   ok(inrange, "FM6 import: every voice sanitized (all 7F bank)");
 }
 
-/* the slot select starts at the first empty bank slot, else B1; the user's own choice is kept */
-function fm6DefaultSlot() {
-  const F6 = E.FM6, sl = (used) => Array.from({ length: 35 }, (_, i) => ({ used: i < 8 || used.includes(i - 8) }));
-  ok(F6.defaultSlot(sl([]), 8, 27) === 8 && F6.defaultSlot(sl([0, 1, 2]), 8, 27) === 11 && F6.defaultSlot(sl([0, 2]), 8, 27) === 9,
-    "FM6 slot: the first empty B slot (B1, B4, B2)");
-  ok(F6.defaultSlot(sl([...Array(27).keys()]), 8, 27) === 8 && F6.defaultSlot(null, 8, 27) === 8, "FM6 slot: all used, or not listed yet: B1");
-  ok(/ss\.value = fm6SlotChosen && keepS !== "" \? keepS : FM6\.defaultSlot\(/.test(html)
-    && /\$\("fm6slot"\)\.addEventListener\("change", \(\) => \{ fm6SlotChosen = true;/.test(html)
-    && /fm6SlotChosen = false;/.test(html.slice(html.indexOf("function buildUI()"))),
-    "FM6 slot: the select uses it unless the user chose a slot (reset per connection)");
+/* the 6-OP FM tab without the bank (1.0.3): import -> pick -> edit -> send to track; factory patches into the editor */
+function fm6TabNoBank() {
+  const tab = html.slice(html.indexOf('<section class="panel" id="p-fm6"'), html.indexOf("</section>", html.indexOf('id="p-fm6"')));
+  const code = html.slice(html.indexOf("let fm6v = FM6.init();"), html.indexOf('$("connect").addEventListener'));
+  ok(["fm6import", "fm6file", "fm6imported", "fm6send", "fm6read", "fm6slot", "fm6load", "fm6keep"].every((id) => tab.includes(`id="${id}"`))
+    && !["fm6store", "fm6erase", "fm6bankexp"].some((id) => html.includes(`"${id}"`)), "FM6 tab: import, voices, send, factory load and the hint; no store / erase / bank export");
+  ok(!/TARGET\.BANK|fm6Erase|fm6Store|defaultSlot/.test(code), "FM6 tab: no bank requests");
+  const tb = html.slice(html.indexOf("const TEXT = {"), html.indexOf("\n};", html.indexOf("const TEXT = {")) + 2);
+  const T = vm.runInNewContext(tb.replace("const TEXT =", "(") + ")"), en = T.en, ja = T.ja;
+  ok(/send it to a track, then save a user preset \(SAVE\) or a project/.test(en.fm6Keep) && ja.fm6Keep && !/B1|B27|bank/i.test(en.fm6Help + en.fm6NeedDevice),
+    "FM6 tab: the hint (send to a track, then SAVE on the device), no B slots in the help");
 }
 
 /* ------------------------------------------------- editor tabs and strings --- */
@@ -1377,7 +1407,7 @@ await editorTrackParam();
 await editorSong();
 await editorSessions();
 await editorFm6();
-fm6DefaultSlot();
+fm6TabNoBank();
 await editorFm4();
 editorTabs();
 editorIcons();
