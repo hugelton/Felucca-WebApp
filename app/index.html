@@ -1,0 +1,72 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments -->
+<!-- Felucca editor. ?mock=1: a simulated device (&legacy=1: firmware without live sync). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Felucca Editor</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <span class="brand">Felucca</span>
+    <div class="conn">
+      <button type="button" class="btn primary" id="connect"><span data-i="port_usb_c"></span><span data-t="connect"></span></button>
+      <span class="state" id="state"><span class="dot" id="state-dot"></span><span id="state-t"></span></span>
+    </div>
+    <button type="button" class="store" id="store" aria-haspopup="dialog" hidden>
+      <span class="lbl" data-t="flash"></span><span class="bar" aria-hidden="true"><i id="store-bar"></i></span><span id="store-t"></span>
+    </button>
+    <div class="tracks" role="radiogroup" id="tracks"></div>
+    <div class="tools">
+      <button type="button" class="iconbtn" id="theme"><span data-i="symbol_eye"></span></button>
+      <button type="button" class="iconbtn" id="settings" aria-pressed="false"><span data-i="symbol_cog"></span></button>
+    </div>
+  </header>
+
+  <nav class="rail" role="tablist" id="rail"></nav>
+
+  <main>
+    <section class="screen" id="s-sound" role="tabpanel" aria-labelledby="t-sound"></section>
+    <section class="screen" id="s-seq" role="tabpanel" aria-labelledby="t-seq" hidden></section>
+    <section class="screen" id="s-mix" role="tabpanel" aria-labelledby="t-mix" hidden></section>
+    <section class="screen" id="s-library" role="tabpanel" aria-labelledby="t-library" hidden></section>
+    <section class="screen" id="s-project" role="tabpanel" aria-labelledby="t-project" hidden></section>
+    <section class="screen" id="s-settings" role="tabpanel" hidden></section>
+    <!-- Felucca-mirror (v1.5): the device's screen, hidden until a firmware offers it -->
+    <aside class="device-panel" id="device-panel" hidden><canvas id="mirror" width="240" height="240"></canvas></aside>
+  </main>
+
+  <footer class="help">
+    <span class="grow" id="help" aria-live="polite"></span>
+    <button type="button" class="msg" id="msgs"><span data-i="symbol_info_o"></span><span id="msg-t"></span></button>
+  </footer>
+</div>
+
+<dialog id="confirm" aria-labelledby="cf-t">
+  <h3 id="cf-t"></h3>
+  <div class="acts"><button type="button" class="btn" id="cf-no" data-t="no"></button><button type="button" class="btn primary" id="cf-yes" data-t="yes"></button></div>
+</dialog>
+<dialog id="ask" aria-labelledby="ak-t">
+  <h3 id="ak-t"></h3>
+  <form method="dialog" id="ak-f"><input class="text wide" id="ak-v" type="text" spellcheck="false" maxlength="32" aria-labelledby="ak-t">
+  <div class="acts"><button type="button" class="btn" id="ak-no" data-t="cancel"></button><button type="submit" class="btn primary" id="ak-yes" data-t="ok"></button></div></form>
+</dialog>
+<dialog id="storage" aria-labelledby="sg-t">
+  <h3 id="sg-t" data-t="flash"></h3>
+  <div class="st-rows" id="sg-rows"></div>
+  <div class="acts"><button type="button" class="btn" id="sg-x" data-t="close"></button></div>
+</dialog>
+<dialog id="log" aria-labelledby="lg-t">
+  <h3 id="lg-t" data-t="messages"></h3>
+  <ul class="log" id="log-list" aria-live="polite"></ul>
+  <div class="acts"><button type="button" class="btn" id="lg-x" data-t="close"></button></div>
+</dialog>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
