@@ -10,13 +10,19 @@
   webapp/editor/index.html    editor.html (+ fukiai.ttf, FUKIAI-LICENSE.txt)
   src/                        not touched (Felucca's sources go there)
 
-  web/make_site.py PACKAGE.fwsc VERSION OUT_DIR
+  make_site.py PACKAGE.fwsc VERSION OUT_DIR [--licences DIR]
+
+DIR: the firmware release's licence files, the ones that travel with the package: LICENSE,
+LICENSING.md and LICENSES/*.txt (default: FELUCCA_LICENCES, else the folder above this one when it
+holds them, as in a Felucca checkout). They are checked before anything is written. (This repository's
+own LICENSES are the web app's, not the package's.)
 
 The package must be one made by tools/fm1pkg_make.py (Felucca's own loader, no vendor files).
 Its identity (FM-1_9xx) is read from the package; the device must report it after
 the install.
 """
 import json
+import os
 import re
 import shutil
 import sys
@@ -36,8 +42,19 @@ def product_of(raw):
     return "".join(chr((m - i - 1) & 0xFF) for i in range(BLOCKS) if (m := raw[i * BLK + KEEP]) != 0x7D)
 
 
-def main(pkg, version, out):
+def licences_dir(arg=None):
+    """the firmware's licence files: --licences, FELUCCA_LICENCES, or the folder above (a Felucca checkout)"""
+    cands = [Path(arg)] if arg else [Path(os.environ["FELUCCA_LICENCES"])] if os.environ.get("FELUCCA_LICENCES") else [HERE.parent]
+    for d in cands:
+        if (d / "LICENSE").is_file() and (d / "LICENSING.md").is_file() and list((d / "LICENSES").glob("*.txt")):
+            return d.resolve()
+    raise SystemExit(f"make_site.py: no firmware licence files (LICENSE, LICENSING.md, LICENSES/*.txt) in {cands[0]}; "
+                     "pass --licences DIR (the firmware release's)")
+
+
+def main(pkg, version, out, licences=None):
     pkg, out = Path(pkg), Path(out)
+    lic_root = licences_dir(licences)                # (before anything is written)
     raw = pkg.read_bytes()
     product = product_of(raw)
     if not re.fullmatch(r"FM-1_9\d\d", product):
@@ -62,7 +79,7 @@ def main(pkg, version, out):
         old.unlink()
     (inst / "index.html").write_text(html, encoding="utf-8")
     shutil.copy(pkg, fw / name)
-    lic = HERE.parent / "LICENSES"                  # the package holds JieLi SDK files (Apache-2.0): their
+    lic = lic_root / "LICENSES"                     # the package holds JieLi SDK files (Apache-2.0): their
     (fw / "LICENSES").mkdir(exist_ok=True)          # licence travels next to it, with Felucca's own
     names = sorted(f.name for f in lic.glob("*.txt"))
     for n in names:
@@ -73,7 +90,7 @@ def main(pkg, version, out):
         + '</ul><p><a href="../LICENSING.md">LICENSING.md</a> · <a href="../LICENSE">LICENSE (GPL-3.0)</a></p>\n',
         encoding="utf-8")
     for doc in ("LICENSE", "LICENSING.md"):
-        shutil.copy(HERE.parent / doc, fw / doc)
+        shutil.copy(lic_root / doc, fw / doc)
     shutil.copy(HERE / "editor.html", ed / "index.html")
     for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
         if (HERE / f).exists():
@@ -86,6 +103,14 @@ def main(pkg, version, out):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
+    a = sys.argv[1:]
+    lic = None
+    if "--licences" in a:
+        k = a.index("--licences")
+        if k + 1 >= len(a):
+            sys.exit(__doc__)
+        lic = a[k + 1]
+        del a[k:k + 2]
+    if len(a) != 3:
         sys.exit(__doc__)
-    main(*sys.argv[1:4])
+    main(*a, licences=lic)

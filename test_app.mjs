@@ -349,6 +349,44 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   d.close();
 }
 
+
+/* ------------------------------------------------------------ make_site.py --- */
+{
+  const dir = mkdtempSync(join(tmpdir(), "felucca-site-"));
+  /* a package as fm1pkg_make.py writes one, as far as make_site reads it: the identity (one marker byte after each of
+     the first 20 blocks of 0x30, 0x7D = none) and the loader's marker */
+  const pkgOf = (id, loader = true) => {
+    const raw = new Uint8Array(20 * 0x30 + 64).fill(0x55);
+    for (let i = 0; i < 20; i++) raw[i * 0x30 + 0x2F] = i < id.length ? (id.charCodeAt(i) + i + 1) & 0xFF : 0x7D;
+    if (loader) raw.set(new TextEncoder().encode("FELUCCA-LOADER-1"), 20 * 0x30 + 8);
+    return raw;
+  };
+  writeFileSync(join(dir, "ok.fwsc"), pkgOf("FM-1_903"));
+  writeFileSync(join(dir, "stock.fwsc"), pkgOf("FM-1_015"));
+  writeFileSync(join(dir, "vendor.fwsc"), pkgOf("FM-1_903", false));
+  const fwlic = join(dir, "fw");
+  mkdirSync(join(fwlic, "LICENSES"), { recursive: true });
+  writeFileSync(join(fwlic, "LICENSE"), "GPL\n"); writeFileSync(join(fwlic, "LICENSING.md"), "# fw\n");
+  writeFileSync(join(fwlic, "LICENSES", "Apache-2.0.txt"), "A\n"); writeFileSync(join(fwlic, "LICENSES", "MIT-X.txt"), "M\n");
+  const site = (pkg, out, ...extra) => {
+    try { execFileSync("python3", [join(HERE, "make_site.py"), join(dir, pkg), "1.0.3", join(dir, out), ...extra], { encoding: "utf8", env: { ...process.env, FELUCCA_LICENCES: "" } }); return ""; }
+    catch (e) { return String(e.stderr || e.message); }
+  };
+  ok(site("ok.fwsc", "s1", "--licences", fwlic) === "", "site: make_site.py builds with the firmware's licences (--licences)");
+  const s1 = join(dir, "s1"), inst = readFileSync(join(s1, "webapp/installer/index.html"), "utf8");
+  ok(!inst.includes("/*LIB*/") && !inst.includes("/*META*/") && inst.includes('"product": "FM-1_903"') && inst.includes("../../firmware/felucca-1.0.3.fwsc"),
+    "site: the installer, its libraries and the package's metadata inlined");
+  ok(existsSync(join(s1, "firmware/felucca-1.0.3.fwsc")) && readFileSync(join(s1, "firmware/LICENSING.md"), "utf8") === "# fw\n"
+     && readdirSync(join(s1, "firmware/LICENSES")).sort().join() === "Apache-2.0.txt,MIT-X.txt,index.html",
+    "site: the package with the firmware's LICENSE, LICENSING.md, LICENSES/ (not the web app's)");
+  ok(["index.html", "fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"].every((f) => existsSync(join(s1, "webapp/editor", f)))
+     && /url=webapp\/installer\//.test(readFileSync(join(s1, "index.html"), "utf8")), "site: the editor with its font and licence, the redirect");
+  const nolic = site("ok.fwsc", "s2", "--licences", join(dir, "nowhere"));
+  ok(/no firmware licence files/.test(nolic) && !existsSync(join(dir, "s2")), "site: no licence files: refused before anything is written");
+  ok(/not a Felucca package/.test(site("stock.fwsc", "s3", "--licences", fwlic)), "site: an official package (FM-1_015) is refused");
+  ok(/no Felucca loader/.test(site("vendor.fwsc", "s4", "--licences", fwlic)), "site: a package without Felucca's loader is refused");
+}
+
 /* ------------------------------------------------------------- bundle.py --- */
 {
   const dir = mkdtempSync(join(tmpdir(), "felucca-bundle-"));
