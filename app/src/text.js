@@ -32,6 +32,7 @@ const TEXT = {
     fm6BadSum: "a checksum was wrong", fm6Short: "some data was cut short", fm6NoVoice: "no 6-operator voices",
     fm6NotSysex: "not a SysEx file", fm6Is4op: "4-operator voices", fm6OtherBlocks: "no voices (other data of the format)",
     fm6OtherMaker: "another manufacturer's SysEx", fm6Universal: "universal SysEx",
+    installer: "Installer", classic: "Classic editor",
     files: "Files", recInput: "Input", recFull: "The slot is full", recDenied: "No input:", recSilent: "Nothing came in",
   },
   ja: {
@@ -59,6 +60,7 @@ const TEXT = {
     fm6BadSum: "チェックサムの違いあり", fm6Short: "途中で切れたデータあり", fm6NoVoice: "6 オペレーターの音色なし",
     fm6NotSysex: "SysEx ではありません", fm6Is4op: "4 オペレーターの音色です", fm6OtherBlocks: "音色なし（同じ形式のほかのデータ）",
     fm6OtherMaker: "ほかのメーカーの SysEx", fm6Universal: "ユニバーサル SysEx",
+    installer: "インストーラー", classic: "旧エディタ",
     files: "ファイル", recInput: "入力", recFull: "スロットがいっぱいです", recDenied: "入力が使えません:", recSilent: "音が入っていません",
   },
 };

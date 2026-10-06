@@ -22,8 +22,10 @@ export function mixScreen(root) {
     const cush = el("button", { type: "button", class: "cushbtn", onclick: () => dev.selectTrack(k) }, el("span", { class: "cush", "aria-hidden": "true", text: String(k + 1) }));
     const snd = el("span", { class: "snd" });
     const rec = el("span", { class: "chip rec", text: "REC", hidden: true });
-    const lvl = el("span", { class: "lv" });
-    const fader = el("div", { class: "fader" }, el("span", { class: "slot" }), el("span", { class: "lvl" }), el("span", { class: "cap" }));
+    /* the level: a gauge row stood up (filled from the bottom, the value, its unit and the label stacked in the middle) */
+    const lvl = el("span", { class: "v" });
+    const fader = el("div", { class: "vgauge" }, el("span", { class: "fill" }),
+      el("span", { class: "stack" }, lvl, el("span", { class: "lbl", text: lvDesc.label })));
     const input = el("input", { type: "range", min: 0, max: 127, step: 1 });
     fader.append(input);
     let dragging = false;
@@ -36,8 +38,8 @@ export function mixScreen(root) {
     const level = (v, final) => { showLevel(v); help(`${t("track")} ${k + 1} ${lvDesc.label}`, input.getAttribute("aria-valuetext")); dev.setMix(k, v, x().mute); };
     input.addEventListener("input", () => level(+input.value, false));
     input.addEventListener("change", () => level(+input.value, true));
-    input.addEventListener("pointerdown", () => { dragging = true; });
-    for (const ev of ["pointerup", "pointercancel", "blur"]) input.addEventListener(ev, () => { dragging = false; });
+    input.addEventListener("pointerdown", () => { dragging = true; fader.classList.add("hot"); });
+    for (const ev of ["pointerup", "pointercancel", "blur"]) input.addEventListener(ev, () => { dragging = false; fader.classList.remove("hot"); });
     input.addEventListener("dblclick", () => { input.value = String(lvDesc.def); level(lvDesc.def, true); });
     input.addEventListener("focus", () => help(`${t("track")} ${k + 1} ${lvDesc.label}`, input.getAttribute("aria-valuetext")));
     input.addEventListener("keydown", (e) => {
@@ -48,7 +50,7 @@ export function mixScreen(root) {
     const mute = el("button", { type: "button", class: "chip", onclick: () => dev.setMix(k, x().level, !x().mute) }, ic("control_speaker_mute"), "MUTE");
     const pan = paramRow(panDesc, x().pan ?? 0, (v, final) => dev.setTrackParam(k, "pan", v, final), { icon: "symbol_pan", label: panDesc.label });
     const rev = paramRow(revDesc, x().rev ?? 0, (v, final) => dev.setTrackParam(k, "rev", v, final), { icon: "symbol_spring", label: revDesc.label });
-    const box = el("div", { class: "strip", role: "group" }, el("div", { class: "head" }, cush, rec), snd, fader, lvl, mute, pan.el, rev.el);
+    const box = el("div", { class: "strip", role: "group" }, el("div", { class: "head" }, cush, rec), snd, fader, mute, pan.el, rev.el);
     const s = {
       el: box,
       update() {

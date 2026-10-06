@@ -138,14 +138,6 @@ main { grid-row: 2; padding: 4px 16px 24px 4px; min-width: 0; }
 .strip.sel .cush { background: var(--accent); }
 .strip .snd { font-size: .75rem; color: var(--mid); text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .strip.sel .snd { color: var(--text); }
-.fader { position: relative; width: 44px; height: 200px; --p: 70%; }
-.fader .slot { position: absolute; left: 50%; top: 0; bottom: 0; width: 6px; margin-left: -3px; border-radius: 3px; background: var(--raise); }
-.fader .lvl { position: absolute; left: 50%; bottom: 0; width: 6px; margin-left: -3px; height: var(--p); border-radius: 3px; background: var(--theme); }
-.fader .cap { position: absolute; left: 50%; bottom: calc(var(--p) - 5px); width: 28px; height: 10px; margin-left: -14px; border-radius: 5px; background: var(--text); }
-.strip.sel .fader .cap { background: var(--accent); }
-.strip.muted .fader .lvl, .strip.muted .fader .cap { background: var(--dim); }
-.fader input { position: absolute; inset: 0; opacity: 0; writing-mode: vertical-lr; direction: rtl; width: 100%; height: 100%; margin: 0; cursor: ns-resize; }
-.fader:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
 .strip .lv { font-size: 1rem; font-weight: 500; color: var(--theme); }
 .chip { min-height: 28px; padding: 0 10px; border: 0; border-radius: var(--r-s); background: var(--raise); color: var(--text); cursor: pointer; font-size: .6875rem; font-weight: 600; letter-spacing: .06em; }
 .chip[aria-pressed="true"] { background: var(--text); color: var(--ink); }
@@ -224,7 +216,6 @@ dialog .acts { display: flex; gap: 8px; justify-content: flex-end; }
   .hit { height: 32px; }
   .steps-mini.n8 { grid-template-columns: repeat(8, 1fr); }
   .mixer { gap: 8px; }
-  .fader { height: 150px; }
 }
 
 /* ---- the app (beyond the preview) ---- */
@@ -359,3 +350,20 @@ input.text.num { width: 6.5em; min-height: 32px; background: var(--surf); }
 .opgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: var(--gap); }
 .freq { color: var(--theme); font-weight: 500; letter-spacing: 0; text-transform: none; }
 .list.voices { max-height: 240px; margin-top: 8px; }
+.note { margin: 12px 0 0; font-size: .75rem; color: var(--mid); }
+a.iconbtn { text-decoration: none; }
+
+/* the mixer's level: the gauge row stood up */
+.strip { grid-template-rows: auto auto 1fr auto auto auto; }
+.vgauge { position: relative; width: 100%; height: 220px; border-radius: var(--r-s); background: var(--bg); overflow: hidden; --p: 70%; }
+.vgauge .fill { position: absolute; left: 0; right: 0; bottom: 0; height: var(--p); background: color-mix(in srgb, var(--theme) 14%, var(--bg)); border-top: 2px solid var(--theme); pointer-events: none; }
+.vgauge .stack { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; pointer-events: none; }
+.vgauge .v { display: flex; align-items: baseline; gap: 3px; font-size: 1rem; font-weight: 500; color: var(--theme); }
+.vgauge .v small { font-size: .75rem; font-weight: 400; color: var(--mid); }
+.vgauge input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; writing-mode: vertical-lr; direction: rtl; cursor: ns-resize; }
+.vgauge:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+.vgauge.hot .fill { border-top-color: var(--accent); }
+.vgauge.hot .v, .vgauge.hot .lbl { color: var(--accent); }
+.strip.muted .vgauge .fill { border-top-color: var(--dim); background: color-mix(in srgb, var(--dim) 14%, var(--bg)); }
+.strip.muted .vgauge .v { color: var(--dim); }
+@media (max-width: 640px) { .vgauge { height: 160px; } }

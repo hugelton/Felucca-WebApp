@@ -71,8 +71,12 @@ export function settingsScreen(root, ui) {
         ...kv(t("samples"), dev.smp ? `${dev.smp.nslots} × ${dev.smp.slotKiB} KiB` : "—"),
         ...kv(t("userBank"), dev.bank ? String(dev.bank.total) : "—")] : [])),
       el("div", { class: "links" },
+        el("a", { class: "btn", href: "../installer/", text: t("installer") }),
+        el("a", { class: "btn", href: "../editor-classic/", text: t("classic") }),
         el("a", { class: "btn", href: "fonts/OFL.txt", text: "Inter Tight · OFL" }),
-        el("a", { class: "btn", href: "fonts/FUKIAI-LICENSE.txt", text: "Fukiai · MIT" })));
+        el("a", { class: "btn", href: "fonts/FUKIAI-LICENSE.txt", text: "Fukiai · MIT" })),
+      /* the one note the page carries: what it runs on, and whose names those are */
+      el("p", { class: "note", text: "Runs on M-VAVE FM-1. M-VAVE and FM-1 are trademarks of their respective owners; this project is not affiliated with them." }));
   }
 
   return {

@@ -155,6 +155,7 @@ function relabel() {
   for (const e of $$("[data-t]")) e.textContent = t(e.dataset.t);
   $("#theme").setAttribute("aria-label", t("display"));
   $("#settings").setAttribute("aria-label", t("settings"));
+  $("#installer").setAttribute("aria-label", t("installer"));
   $("#rail").setAttribute("aria-label", t("sound") + " · " + t("seq"));
   $("#tracks").setAttribute("aria-label", t("tracks"));
   $("#connect").lastElementChild.textContent = t(dev ? "disconnect" : "connect");
