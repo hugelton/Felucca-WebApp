@@ -104,7 +104,7 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
 
 /* ---------------------------------------------------- SEQ: steps and motion --- */
 {
-  const { stepToggled, laneToggled, stepOn, MOTION_IDS } = await import("./app/src/seq.js");
+  const { stepToggled, laneToggled, stepOn, MOTION_IDS, autoName } = await import("./app/src/seq.js");
   const E0 = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0, chance: 100 };
   const steps = [{ ...E0, n: 1, notes: [64, 0, 0, 0], time: 0, vel: 80 }, { ...E0 }];
   const on = stepToggled(steps, 1);
@@ -118,6 +118,8 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   g = laneToggled(g, 2, 0);
   ok(g.hit === 0 && g.acc === 0 && g.time === 2, "seq: the last hit off: no accent left, the step rests");
   ok(laneToggled(E0, 5, 1).hit === 32, "seq: an accent on an empty lane makes it hit");
+  ok(autoName("FELUCCA v1.0.4") === "AUTOMATION" && autoName("FELUCCA v1.0.3.1") === "MOTION" && autoName("FELUCCA v1.1") === "AUTOMATION",
+    "seq: AUTOMATION from 1.0.4, MOTION before (as the device names it)");
   ok(MOTION_IDS.length === 17 + 7 + 20 + 8 && !MOTION_IDS.includes(81) && !MOTION_IDS.includes(82) && MOTION_IDS.includes(90),
     "seq: MOTION's parameters (0..16, 33..36, 38, 39, 44, 61..80, 83..90)");
 
@@ -425,6 +427,25 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   ok(["index.html", "fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"].every((f) => existsSync(join(s1, "webapp/editor-classic", f)))
      && readFileSync(join(s1, "webapp/editor-classic/index.html"), "utf8") === readFileSync(join(HERE, "editor.html"), "utf8")
      && /url=webapp\/installer\//.test(readFileSync(join(s1, "index.html"), "utf8")), "site: the classic editor beside it (its font, licence, backup), the redirect");
+  {
+    /* built over a site the earlier editor made: its files leave webapp/editor/ (they are in editor-classic/) */
+    const ed0 = join(dir, "s5", "webapp", "editor");
+    mkdirSync(ed0, { recursive: true });
+    for (const f of ["fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"]) writeFileSync(join(ed0, f), "old\n");
+    ok(site("ok.fwsc", "s5", "--licences", fwlic) === "" && ["fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"].every((f) => !existsSync(join(ed0, f)))
+       && existsSync(join(ed0, "fonts", "fukiai.ttf")), "site: over an earlier site, the earlier editor's files leave webapp/editor/");
+  }
+  {
+    /* the installer credits the Sample Pack when the package's LICENSING.md has it (1.0.3.x), not otherwise (1.0.4) */
+    const lic2 = join(dir, "fwlic2");
+    mkdirSync(join(lic2, "LICENSES"), { recursive: true });
+    writeFileSync(join(lic2, "LICENSE"), "GPL\n"); writeFileSync(join(lic2, "LICENSING.md"), "| The Sample Pack: drum sounds | GPL |\n");
+    writeFileSync(join(lic2, "LICENSES", "MIT-X.txt"), "M\n");
+    site("ok.fwsc", "s6", "--licences", lic2);
+    const with_ = readFileSync(join(dir, "s6/webapp/installer/index.html"), "utf8"), without = readFileSync(join(s1, "webapp/installer/index.html"), "utf8");
+    ok(with_.includes("drum voices, Sample Pack and Fukiai icons") && without.includes("drum voices and Fukiai icons") && !without.includes("Sample Pack"),
+      "site: the installer credits the Sample Pack only when the package's LICENSING.md has it");
+  }
   const nolic = site("ok.fwsc", "s2", "--licences", join(dir, "nowhere"));
   ok(/no firmware licence files/.test(nolic) && !existsSync(join(dir, "s2")), "site: no licence files: refused before anything is written");
   ok(/not a Felucca package/.test(site("stock.fwsc", "s3", "--licences", fwlic)), "site: an official package (FM-1_015) is refused");
@@ -522,12 +543,14 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
 /* ------------------------------------------------------------- versions --- */
 {
   const { parseVersion, cmpVersion, advice } = await import("./app/src/version.js");
-  ok(parseVersion("FELUCCA v1.0.3").join() === "1,0,3" && parseVersion("FELUCCA 0.9 BETA").join() === "0,9,0" && parseVersion("FELUCCA v1.0 (MOCK)").join() === "1,0,0"
+  ok(parseVersion("FELUCCA v1.0.3").join() === "1,0,3,0" && parseVersion("FELUCCA 0.9 BETA").join() === "0,9,0,0" && parseVersion("FELUCCA v1.0 (MOCK)").join() === "1,0,0,0"
      && parseVersion("nothing") === null, "versions: read from INFO's string");
   ok(cmpVersion("1.0.2", "1.0.3") === -1 && cmpVersion("1.0.10", "1.0.9") === 1 && cmpVersion("v1.0", "1.0.0") === 0, "versions: compared by number");
   ok(advice("FELUCCA 0.9 BETA", "1.0.3") === "classic" && advice("FELUCCA 0.4 BETA (MOCK)", "") === "classic", "versions: before 1.0 -> the classic editor (or an update)");
   ok(advice("FELUCCA v1.0.2", "1.0.3") === "update" && advice("FELUCCA v1.0.3", "1.0.3") === "" && advice("FELUCCA v1.0.4", "1.0.3") === ""
      && advice("FELUCCA v1.0.2", "") === "", "versions: older than the site's release -> update; no release (a local page): nothing");
+  ok(advice("FELUCCA v1.0.3", "1.0.3.1") === "update" && advice("FELUCCA v1.0.3.1", "1.0.3.1") === "" && advice("FELUCCA v1.0.4", "1.0.3.1") === ""
+     && cmpVersion("1.0.3.1", "1.0.3") === 1, "versions: a hotfix (1.0.3.1) is newer than 1.0.3");
 }
 
 /* ------------------------------------------------------------- bundle.py --- */
