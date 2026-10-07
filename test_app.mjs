@@ -193,8 +193,9 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   const m = proto.makeMockDevice();
   const d = new Device(m.access);
   await d.open();
-  ok(d.info.menuCount === 12 && d.menu && d.menu.length === 12 && d.menu[4].name === "LEDS" && d.menu[4].value === 2,
-    "menu: read on open (12 items, LEDS DIM HI)");
+  ok(d.info.menuCount === proto.MENU.length && d.menu && d.menu.length === proto.MENU.length && d.menu[4].name === "LEDS" && d.menu[4].value === 2
+     && d.menu.filter((x) => x.tabName === "AUDIO").map((x) => x.name).join() === "SPEAKER EQ,USB LEVEL,CLICK,CLICK LEVEL,COUNT-IN",
+    "menu: read on open (every item, LEDS DIM HI; AUDIO with the metronome and count-in, 1.1)");
   const seen = [];
   d.on("menu", (x) => seen.push(x.length));
   ok(await d.menuSet(4, 3) === 0 && m.state.menu[4] === 3 && d.menu[4].value === 3 && seen.length === 1, "menu: a value set (LEDS INV)");

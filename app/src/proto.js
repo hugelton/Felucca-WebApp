@@ -11,6 +11,7 @@
 // - 1.0.5: ratchets (INFO 52 01 04, a byte after the chance in steps; opt.noRatchet: not), MENU tabs
 // - 1.1: parameter locks (INFO 4C 01 01, MOTION ops 5..7 with the kinds; opt.noLocks: not)
 // - 1.0.5: MENU_DESC ends with the item's tab (index, name: MENU_TABS; opt.noMenuTabs: not, as 1.0.4)
+// - 1.1: MENU items 12..14 CLICK, CLICK LEVEL, COUNT-IN (AUDIO), appended after USB SERIAL (INFO 4E 01 15)
 /*PROTO-BEGIN*/
 /* ---------------------------------------------------------------- protocol --- */
 const HDR = [0x7D, 0x46, 0x4C];
@@ -1362,6 +1363,10 @@ const MENU = [
   { id: 8, name: "BPM LOCK", names: ["OFF", "ON"], def: 0, tab: 1 },
   { id: 9, name: "SPEAKER EQ", names: ["FLAT", "LOWCUT", "BASS+"], def: 0, tab: 2 },
   { id: 10, name: "USB LEVEL", names: ["MASTER", "FIXED"], def: 0, tab: 2 }, { id: 11, name: "USB SERIAL", names: ["ON", "OFF"], def: 0, tab: 3 },
+  /* 1.1 (Discussion #131): the metronome and the count-in, appended (index = id), shown in AUDIO */
+  { id: 12, name: "CLICK", names: ["OFF", "REC", "ON"], def: 0, tab: 2 },
+  { id: 13, name: "CLICK LEVEL", names: ["LOW", "MID", "HIGH"], def: 1, tab: 2 },
+  { id: 14, name: "COUNT-IN", names: ["OFF", "1 BAR", "2 BARS"], def: 0, tab: 2 },
 ];
 /* the MENU settings the device offers, in its menu's order (firmware without them: []); rq as the other readers */
 async function readDeviceMenu(rq, info) {
