@@ -446,6 +446,30 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
     ok(with_.includes("drum voices, Sample Pack and Fukiai icons") && without.includes("drum voices and Fukiai icons") && !without.includes("Sample Pack"),
       "site: the installer credits the Sample Pack only when the package's LICENSING.md has it");
   }
+  {
+    /* 1.0.4: the Sample Pack's row says it is not in the firmware: not credited; ATTRIBUTION.txt beside the package */
+    const lic3 = join(dir, "fwlic3");
+    mkdirSync(join(lic3, "LICENSES"), { recursive: true });
+    writeFileSync(join(lic3, "LICENSE"), "GPL\n"); writeFileSync(join(lic3, "LICENSES", "MIT-X.txt"), "M\n");
+    writeFileSync(join(lic3, "LICENSING.md"), "| The Sample Pack: drum sounds played by the host tests. Not in the firmware since 1.0.4 | GPL |\n");
+    writeFileSync(join(lic3, "ATTRIBUTION.txt"), "CC0 sources\n");
+    /* --try: the emulator's three files in webapp/try/, linked from the installer and the editor */
+    const tr = join(dir, "try-src");
+    mkdirSync(tr, { recursive: true });
+    for (const f of ["index.html", "worklet.js", "felucca.wasm"]) writeFileSync(join(tr, f), f + "\n");
+    ok(site("ok.fwsc", "s7", "--licences", lic3, "--try", tr) === "", "site: builds with --try");
+    const s7 = join(dir, "s7"), inst7 = readFileSync(join(s7, "webapp/installer/index.html"), "utf8"), ed7 = readFileSync(join(s7, "webapp/editor/index.html"), "utf8");
+    ok(!inst7.includes("Sample Pack") && readFileSync(join(s7, "firmware/ATTRIBUTION.txt"), "utf8") === "CC0 sources\n",
+      "site: a Sample Pack not in the firmware is not credited; ATTRIBUTION.txt beside the package");
+    ok(["index.html", "worklet.js", "felucca.wasm"].every((f) => readFileSync(join(s7, "webapp/try", f), "utf8") === f + "\n")
+       && inst7.includes('<p id="try-p">') && ed7.includes('<meta name="felucca-try" content="1">'),
+      "site: --try puts the emulator in webapp/try/, linked from the installer and the editor");
+    const inst1 = readFileSync(join(s1, "webapp/installer/index.html"), "utf8"), ed1 = readFileSync(join(s1, "webapp/editor/index.html"), "utf8");
+    ok(inst1.includes('<p id="try-p" hidden>') && ed1.includes('<meta name="felucca-try" content="">') && !existsSync(join(s1, "webapp/try")),
+      "site: without --try (and no emulator there): no link");
+    ok(/needs index.html/.test(site("ok.fwsc", "s8", "--licences", lic3, "--try", join(dir, "nowhere"))) && !existsSync(join(dir, "s8")),
+      "site: --try without the three files: refused before anything is written");
+  }
   const nolic = site("ok.fwsc", "s2", "--licences", join(dir, "nowhere"));
   ok(/no firmware licence files/.test(nolic) && !existsSync(join(dir, "s2")), "site: no licence files: refused before anything is written");
   ok(/not a Felucca package/.test(site("stock.fwsc", "s3", "--licences", fwlic)), "site: an official package (FM-1_015) is refused");

@@ -12,6 +12,8 @@ import { MENU_ICON } from "./paramicons.js";
 import { knownLayout } from "./device.js";
 import { LANGS, getLang, setLang, t } from "./text.js";
 
+/* the site has the emulator beside the editor (make_site.py --try) */
+const TRY = !!(globalThis.document && (document.querySelector('meta[name="felucca-try"]') || {}).content);
 export const THEMES = ["system", "dark", "light"];
 export const SIZES = [1, 1.25, 1.5];
 export function applyEditorPrefs() {
@@ -94,6 +96,7 @@ export function settingsScreen(root, ui) {
         ...kv(t("userBank"), dev.bank ? String(dev.bank.total) : "—")] : [])),
       el("div", { class: "links" },
         el("a", { class: "btn", href: "../installer/", text: t("installer") }),
+        TRY ? el("a", { class: "btn", href: "../try/", text: t("tryIt") }) : null,
         el("a", { class: "btn", href: "../editor-classic/", text: t("classic") }),
         el("a", { class: "btn", href: "fonts/OFL.txt", text: "Inter Tight · OFL" }),
         el("a", { class: "btn", href: "fonts/FUKIAI-LICENSE.txt", text: "Fukiai · MIT" })),

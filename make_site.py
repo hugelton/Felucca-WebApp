@@ -11,12 +11,14 @@
   webapp/editor/index.html    the editor (app/): its modules and stylesheets in one page (bundle.py),
                               its fonts and their licences in fonts/
   webapp/editor-classic/      the earlier editor (editor.html + fukiai.ttf, FUKIAI-LICENSE.txt, fm1backup.js)
+  webapp/try/                 with --try DIR: the emulator (index.html, worklet.js, felucca.wasm from the firmware's
+                              release), linked from the installer and the editor; without it: left as it is
   src/                        not touched (Felucca's sources go there)
 
-  make_site.py PACKAGE.fwsc VERSION OUT_DIR [--licences DIR]
+  make_site.py PACKAGE.fwsc VERSION OUT_DIR [--licences DIR] [--try DIR]
 
 DIR: the firmware release's licence files, the ones that travel with the package: LICENSE,
-LICENSING.md and LICENSES/*.txt (default: FELUCCA_LICENCES, else the folder above this one when it
+LICENSING.md and LICENSES/*.txt, and ATTRIBUTION.txt when the release has one (default: FELUCCA_LICENCES, else the folder above this one when it
 holds them, as in a Felucca checkout). They are checked before anything is written. (This repository's
 own LICENSES are the web app's, not the package's.)
 
@@ -57,9 +59,20 @@ def licences_dir(arg=None):
                      "pass --licences DIR (the firmware release's)")
 
 
-def main(pkg, version, out, licences=None):
+TRY_FILES = ("index.html", "worklet.js", "felucca.wasm")
+
+
+def sample_pack_in(licensing):
+    """the package carries the Sample Pack (1.0.3.x): LICENSING.md's row for it does not say it is not in the firmware"""
+    rows = [x for x in licensing.splitlines() if "Sample Pack" in x]
+    return any("not in the firmware" not in x.lower() for x in rows)
+
+
+def main(pkg, version, out, licences=None, try_dir=None):
     pkg, out = Path(pkg), Path(out)
     lic_root = licences_dir(licences)                # (before anything is written)
+    if try_dir and not all((Path(try_dir) / f).is_file() for f in TRY_FILES):
+        raise SystemExit(f"make_site.py: --try {try_dir}: needs {', '.join(TRY_FILES)}")
     raw = pkg.read_bytes()
     product = product_of(raw)
     if not re.fullmatch(r"FM-1_9\d\d", product):
@@ -81,7 +94,7 @@ def main(pkg, version, out, licences=None):
     credit = "drum voices and Fukiai icons (MIT)"        # (a package with the Sample Pack, 1.0.3.x: its credit too)
     if html.count(credit) != 1:
         raise SystemExit("index_pkg.html: the credits line changed; update make_site.py")
-    if "Sample Pack" in (lic_root / "LICENSING.md").read_text(encoding="utf-8"):
+    if sample_pack_in((lic_root / "LICENSING.md").read_text(encoding="utf-8")):
         html = html.replace(credit, "drum voices, Sample Pack and Fukiai icons (MIT)")
     inst, ed, cl, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "webapp" / "editor-classic", out / "firmware"
     editor = bundle_page(HERE / "app" / "index.html")   # (before anything is written: a module the bundler refuses stops here)
@@ -93,6 +106,16 @@ def main(pkg, version, out, licences=None):
         d.mkdir(parents=True, exist_ok=True)
     for old in fw.glob("felucca-*.fwsc"):          # one package: the current one
         old.unlink()
+    has_try = bool(try_dir) or (out / "webapp" / "try" / "index.html").is_file()   # (one already there stays linked)
+    if has_try:
+        if html.count('<p id="try-p" hidden>') != 1:
+            raise SystemExit("index_pkg.html must have the try link once; update make_site.py")
+        html = html.replace('<p id="try-p" hidden>', '<p id="try-p">')
+        editor = editor.replace('<meta name="felucca-try" content="">', '<meta name="felucca-try" content="1">')
+    if try_dir:
+        (out / "webapp" / "try").mkdir(parents=True, exist_ok=True)
+        for f in TRY_FILES:
+            shutil.copy(Path(try_dir) / f, out / "webapp" / "try" / f)
     (inst / "index.html").write_text(html, encoding="utf-8")
     shutil.copy(pkg, fw / name)
     lic = lic_root / "LICENSES"                     # the package holds JieLi SDK files (Apache-2.0): their
@@ -107,6 +130,10 @@ def main(pkg, version, out, licences=None):
         encoding="utf-8")
     for doc in ("LICENSE", "LICENSING.md"):
         shutil.copy(lic_root / doc, fw / doc)
+    if (lic_root / "ATTRIBUTION.txt").is_file():     # (the CC0 samples' sources, 1.0.4 on)
+        shutil.copy(lic_root / "ATTRIBUTION.txt", fw / "ATTRIBUTION.txt")
+    else:
+        (fw / "ATTRIBUTION.txt").unlink(missing_ok=True)
     (ed / "index.html").write_text(editor, encoding="utf-8")
     for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):   # (the earlier editor's, now in editor-classic/)
         (ed / f).unlink(missing_ok=True)
@@ -135,6 +162,13 @@ if __name__ == "__main__":
             sys.exit(__doc__)
         lic = a[k + 1]
         del a[k:k + 2]
+    tr = None
+    if "--try" in a:
+        k = a.index("--try")
+        if k + 1 >= len(a):
+            sys.exit(__doc__)
+        tr = a[k + 1]
+        del a[k:k + 2]
     if len(a) != 3:
         sys.exit(__doc__)
-    main(*a, licences=lic)
+    main(*a, licences=lic, try_dir=tr)
