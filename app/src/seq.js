@@ -182,7 +182,9 @@ export function seqScreen(root, ui) {
       return el("div", { class: "evrow" }, r ? r.el : el("span", { text: `P${e.param}` }),
         el("button", { type: "button", class: "iconbtn", "aria-label": `${d ? d.label : e.param} ×`, onclick: () => dev.motionOp(4, e) }, ic("symbol_trash")));
     });
-    const can = motionIds(dev.info.pcount).filter((id) => visible(dev.pdesc[id]) && !evs.some((e) => e.param === id));
+    /* (the DRUM lane levels, 1.1: offered on a DRUM track only, where they sound) */
+    const lane = (id) => dev.info.pe0 >= 91 && id >= 83 && id < dev.info.pe0, drum = dev.engineName() === "DRUM";
+    const can = motionIds(dev.info.pcount).filter((id) => visible(dev.pdesc[id]) && !evs.some((e) => e.param === id) && (!lane(id) || drum));
     const pick = el("select", { "aria-label": autoName(dev.info.version) }, ...can.map((id) => el("option", { value: id, text: dev.pdesc[id].label + (id >= dev.info.pe0 ? " · " + dev.engineName() : "") })));
     const add = el("button", { type: "button", class: "btn", disabled: !can.length || m.count >= m.max,
       onclick: () => { const id = +pick.value; dev.motionOp(3, { step: cur, param: id, value: dev.dump.p[id] }); } }, ic("control_add"), `${t("steps")} ${cur + 1}`);
