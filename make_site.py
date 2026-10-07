@@ -11,7 +11,7 @@
   webapp/editor/index.html    the editor (app/): its modules and stylesheets in one page (bundle.py),
                               its fonts and their licences in fonts/
   webapp/editor-classic/      the earlier editor (editor.html + fukiai.ttf, FUKIAI-LICENSE.txt, fm1backup.js)
-  webapp/try/                 with --try DIR: the emulator (index.html, worklet.js, felucca.wasm from the firmware's
+  webapp/try/                 with --try DIR: the emulator (DIR as it is: index.html, worklet.js, felucca.wasm, fonts/ ... from the firmware's
                               release), linked from the installer and the editor; without it: left as it is.
                               --next: the emulator is a preview of the next version (the links say so)
   src/                        not touched (Felucca's sources go there)
@@ -114,10 +114,9 @@ def main(pkg, version, out, licences=None, try_dir=None, next_=False):
             raise SystemExit("index_pkg.html / app/index.html: the try link or meta changed; update make_site.py")
         html = html.replace(link, link.replace(" hidden", ""))
         editor = editor.replace('<meta name="felucca-try" content="">', f'<meta name="felucca-try" content="{"next" if next_ else "1"}">')
-    if try_dir:
-        (out / "webapp" / "try").mkdir(parents=True, exist_ok=True)
-        for f in TRY_FILES:
-            shutil.copy(Path(try_dir) / f, out / "webapp" / "try" / f)
+    if try_dir:                                      # the whole folder (its fonts/ too); what an earlier one had goes
+        shutil.rmtree(out / "webapp" / "try", ignore_errors=True)
+        shutil.copytree(Path(try_dir), out / "webapp" / "try")
     (inst / "index.html").write_text(html, encoding="utf-8")
     shutil.copy(pkg, fw / name)
     lic = lic_root / "LICENSES"                     # the package holds JieLi SDK files (Apache-2.0): their

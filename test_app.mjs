@@ -461,6 +461,11 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
     const s7 = join(dir, "s7"), inst7 = readFileSync(join(s7, "webapp/installer/index.html"), "utf8"), ed7 = readFileSync(join(s7, "webapp/editor/index.html"), "utf8");
     ok(!inst7.includes("Sample Pack") && readFileSync(join(s7, "firmware/ATTRIBUTION.txt"), "utf8") === "CC0 sources\n",
       "site: a Sample Pack not in the firmware is not credited; ATTRIBUTION.txt beside the package");
+    mkdirSync(join(tr, "fonts"), { recursive: true }); writeFileSync(join(tr, "fonts", "OFL.txt"), "OFL\n");
+    writeFileSync(join(s7, "webapp/try/stale.js"), "old\n");
+    site("ok.fwsc", "s7", "--licences", lic3, "--try", tr);
+    ok(readFileSync(join(s7, "webapp/try/fonts/OFL.txt"), "utf8") === "OFL\n" && !existsSync(join(s7, "webapp/try/stale.js")),
+      "site: --try copies the emulator's folder as it is (fonts/ too), an earlier one's files go");
     ok(["index.html", "worklet.js", "felucca.wasm"].every((f) => readFileSync(join(s7, "webapp/try", f), "utf8") === f + "\n")
        && inst7.includes('<p id="try-p">') && ed7.includes('<meta name="felucca-try" content="1">'),
       "site: --try puts the emulator in webapp/try/, linked from the installer and the editor");
