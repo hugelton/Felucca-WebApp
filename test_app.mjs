@@ -449,6 +449,15 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
     catch (e) { return String(e.stderr || e.message); }
   };
   ok(site("ok.fwsc", "s1", "--licences", fwlic) === "", "site: make_site.py builds with the firmware's licences (--licences)");
+  {
+    /* the installer pins the served package: its size and SHA-256 in the metadata (checked before the write) */
+    const { createHash } = await import("node:crypto");
+    const raw = readFileSync(join(dir, "ok.fwsc")), inst = readFileSync(join(dir, "s1/webapp/installer/index.html"), "utf8");
+    const m = /const meta = (\{[^\n]*\});/.exec(inst), meta = m && JSON.parse(m[1]);
+    ok(meta && meta.size === raw.length && meta.sha256 === createHash("sha256").update(raw).digest("hex")
+       && /pinned\(pkgBytes\)/.test(inst) && /inupdate/.test(inst),
+      "site: the installer pins the package (size, SHA-256), checks it before the write, says how to resume");
+  }
   const s1 = join(dir, "s1"), inst = readFileSync(join(s1, "webapp/installer/index.html"), "utf8");
   ok(!inst.includes("/*LIB*/") && !inst.includes("/*META*/") && !inst.includes("/*TOKENS*/") && inst.includes('"product": "FM-1_903"')
      && inst.includes("../../firmware/felucca-1.0.3.fwsc") && inst.includes(readFileSync(join(APP, "tokens.css"), "utf8")),
