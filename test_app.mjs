@@ -35,7 +35,7 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   d.on("reload", () => seen.reload++);
   d.on("closed", (r) => { seen.closed = r; });
   await d.open();
-  ok(d.loaded && seen.loaded === 1 && d.info.pcount === 91 && d.pdesc.length === 91 && d.gdesc.length === d.info.gcount,
+  ok(d.loaded && seen.loaded === 1 && d.info.pcount === 99 && d.pdesc.length === 99 && d.gdesc.length === d.info.gcount,
     "device: open reads INFO and every DESC");
   ok(seen.progress > d.info.pcount && d.names.length === d.info.nengines && d.steps.length === d.info.nstep,
     "device: NAMES for every engine, every step, progress reported");
@@ -143,6 +143,32 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   await d.clearSequence();
   ok(d.steps.every((x) => !stepOn(x) && !x.n && !x.hit) && d.motion.count === 0, "device: clear sequence empties every step and the motion");
   d.close();
+}
+{
+  /* 1.1 parameter locks: read with their kind (op 7); a lock's value edited stays a lock (op 5, not 3); firmware
+     without locks: the plain query */
+  const m = proto.makeMockDevice();
+  const d = new Device(m.access);
+  await d.open();
+  ok(d.info.locks === 1 && d.info.pcount === 99 && d.info.pe0 === 91, "locks: INFO 4C 01 01 after the ratchet's; P_COUNT 99, P_E0 91");
+  ok(await d.motionOp(5, { step: 2, param: 9, value: 40 }) === 0 && d.motion.events[0].lock === true, "locks: a lock set, read back as one");
+  ok(await d.motionOp(3, { step: 3, param: 10, value: 1 }) === 0 && d.motion.events.find((e) => e.step === 3).lock === false
+     && d.motion.events.find((e) => e.step === 2).lock === true, "locks: after an automation edit (op 3) the kinds are read again");
+  await d.motionOp(5, { step: 2, param: 9, value: 50 });
+  ok(d.motion.events.find((e) => e.step === 2).lock === true && d.motion.events.find((e) => e.step === 2).value === 50, "locks: a lock's value edited stays a lock");
+  ok(await d.motionOp(3, { step: 4, param: 85, value: 64 }) === 0, "locks: a DRUM lane level (85) can be recorded");
+  d.close();
+  const old = new Device(proto.makeMockDevice({ noLocks: true }).access);
+  await old.open();
+  ok(!old.info.locks && old.motion && old.motion.events.every((e) => e.lock === undefined), "locks: firmware without them: the plain query");
+  old.close();
+}
+{
+  /* 1.1: a 1.0.x sound (91 values) written to a user slot: its DRUM lane levels 127 (unset), not 0 (silent) */
+  const p = Array.from({ length: 99 }, (_, i) => (proto.P_LANES.includes(i) ? null : 1));
+  const [, args] = proto.req.upPut(3, { engine: 0, name: "OLD", p, pattern: [] });
+  const at = (i) => args[2 + "OLD".length + 1 + 2 * i] | (args[2 + "OLD".length + 2 + 2 * i] << 7);
+  ok(proto.P_LANES.every((i) => at(i) - 8192 === 127) && at(0) - 8192 === 1, "library: an unset DRUM lane level is written as 127 (a 1.0.x sound keeps its kit audible)");
 }
 {
   /* ratchets (1.0.5: INFO 52 01 04, a byte after the chance): written, read back, cleared to x1; older firmware: none */
@@ -380,7 +406,7 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   }
   /* the full backup: saved, restored, saved again: the same objects */
   const file = await d.backupSave();
-  ok(file && file.format === "felucca-backup" && file.objects.length === 13 && file.objects[2 + empty].size === 3584, "project: a full backup (13 objects)");
+  ok(file && file.format === "felucca-backup" && file.objects.length === 13 && file.objects[2 + empty].size === 3648, "project: a full backup (13 objects)");
   const archive = d.backupCheck(JSON.stringify(file));
   ok((await d.backupRestore(archive)) && d.loaded, "project: restored, everything read again");
   const again = await d.backupSave();

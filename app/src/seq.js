@@ -16,8 +16,11 @@ import { cmpVersion } from "./version.js";
 const TIMES = ["NOTE", "TIE", "REST"];
 /* what the device calls the recorded knob moves: AUTOMATION from 1.0.4, MOTION before (the protocol's name) */
 export const autoName = (version) => (cmpVersion(version, "1.0.4") >= 0 ? "AUTOMATION" : "MOTION");
-/* the ids MOTION can record (EDITOR_PROTOCOL.md v7, the device's motion_param) */
-export const MOTION_IDS = [...Array(17).keys(), 33, 34, 35, 36, 38, 39, 44, ...Array.from({ length: 20 }, (_, k) => 61 + k), ...Array.from({ length: 8 }, (_, k) => 83 + k)];
+/* the ids MOTION can record (EDITOR_PROTOCOL.md v7, the device's motion_param): 83 .. P_COUNT-1 are the engine's
+   (1.0.x) or the DRUM lane levels and the engine's (1.1: 83..90, 91..98); not the chord keys 81, 82 */
+export const motionIds = (pcount = 91) => [...Array(17).keys(), 33, 34, 35, 36, 38, 39, 44, ...Array.from({ length: 20 }, (_, k) => 61 + k),
+  ...Array.from({ length: Math.max(0, pcount - 83) }, (_, k) => 83 + k)];
+export const MOTION_IDS = motionIds(91);
 const EMPTY = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0, chance: 100, ratchet: 1 };
 export const stepOn = (s) => !!s && s.time === 0 && (s.n > 0 || (s.hit | 0) > 0);
 export const notesText = (s) => s.notes.slice(0, s.n).map(noteName).join(" ");
@@ -173,11 +176,13 @@ export function seqScreen(root, ui) {
     const evs = m.events.filter((e) => e.step === cur);
     const rows = evs.map((e) => {
       const d = dev.pdesc[e.param];
-      const r = d ? paramRow(d, e.value, (v, final) => { if (final) dev.motionOp(3, { ...e, value: v }); }, { icon: (v) => paramIcon(d, v) }) : null;
+      /* (a lock, 1.1: its value set as a lock again; op 3 would make it an automation event) */
+      const r = d ? paramRow(d, e.value, (v, final) => { if (final) dev.motionOp(e.lock ? 5 : 3, { ...e, value: v }); },
+        { icon: (v) => paramIcon(d, v), label: e.lock ? d.label + " · LOCK" : d.label }) : null;
       return el("div", { class: "evrow" }, r ? r.el : el("span", { text: `P${e.param}` }),
         el("button", { type: "button", class: "iconbtn", "aria-label": `${d ? d.label : e.param} ×`, onclick: () => dev.motionOp(4, e) }, ic("symbol_trash")));
     });
-    const can = MOTION_IDS.filter((id) => visible(dev.pdesc[id]) && !evs.some((e) => e.param === id));
+    const can = motionIds(dev.info.pcount).filter((id) => visible(dev.pdesc[id]) && !evs.some((e) => e.param === id));
     const pick = el("select", { "aria-label": autoName(dev.info.version) }, ...can.map((id) => el("option", { value: id, text: dev.pdesc[id].label + (id >= dev.info.pe0 ? " · " + dev.engineName() : "") })));
     const add = el("button", { type: "button", class: "btn", disabled: !can.length || m.count >= m.max,
       onclick: () => { const id = +pick.value; dev.motionOp(3, { step: cur, param: id, value: dev.dump.p[id] }); } }, ic("control_add"), `${t("steps")} ${cur + 1}`);

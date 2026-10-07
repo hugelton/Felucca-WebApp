@@ -13,7 +13,7 @@ export const isFelucca = (p) => /felucca/i.test(p.name || "") && p.state !== "di
 export const P = { LEVEL: 0, SLEN: 29 };
 /* the layouts this editor knows (P_COUNT, P_E0 with G_COUNT 27; editor.html knownLayout) */
 export const knownLayout = (info) => info.gcount === 27 &&
-  [[91, 83], [89, 81], [69, 61], [57, 49]].some(([c, e]) => info.pcount === c && info.pe0 === e);
+  [[99, 91], [91, 83], [89, 81], [69, 61], [57, 49]].some(([c, e]) => info.pcount === c && info.pe0 === e);
 export const chordIds = P_CHORD;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -137,8 +137,9 @@ export class Device {
     for (let k = 0; k < n; k++) { if (k % 8 === 0) this.emit("progress", { what: "steps", n: k, total: n }); this.steps[k] = parse[CMD.STEP_GET](await this.rq(req.stepGet(k))); }
     if (this.info.motionMax) await this.readMotion();
   }
+  /* (1.1: the query with the kinds, op 7, so a lock stays one) */
   async readMotion() {
-    const m = parse[CMD.MOTION](await this.rq(req.motion(this.sel ?? 0)));
+    const m = parse[CMD.MOTION](await this.rq(req.motion(this.sel ?? 0, this.info.locks ? 7 : 0)));
     if (m.rc || m.track !== (this.sel ?? 0)) throw new Error("motionState");
     this.motion = m;
   }
@@ -553,10 +554,12 @@ export class Device {
     });
   }
   reloadSteps() { return this.op(async () => { await this.loadSteps(); this.emit("steps", this); }); }
-  /* MOTION: op 1 on / off, 2 clear, 3 set an event ({step, param, value}), 4 delete one; -> rc (0 ok) */
+  /* MOTION: op 1 on / off, 2 clear, 3 set an event ({step, param, value}), 4 delete one; 1.1: 5 set a lock, 6 clear a
+     step's locks; -> rc (0 ok). With locks the reply is read again with the kinds (ops 1..4 reply without) */
   motionOp(op, arg) {
     return this.op(async () => {
-      const r = parse[CMD.MOTION](await this.rq(req.motion(this.sel ?? 0, op, arg)));
+      let r = parse[CMD.MOTION](await this.rq(req.motion(this.sel ?? 0, op, arg)));
+      if (!r.rc && this.info.locks && op < 5) r = parse[CMD.MOTION](await this.rq(req.motion(this.sel ?? 0, 7)));
       if (!r.rc && r.track === (this.sel ?? 0)) { this.motion = r; this.emit("motion", r); }
       return r.rc;
     });

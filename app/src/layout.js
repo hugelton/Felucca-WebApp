@@ -4,7 +4,7 @@
 // Where each parameter goes (felucca/src/core.h ids; editor.html LAYOUT), used when the device's layout is a
 // known one (device.js knownLayout); otherwise every parameter is listed in id order. And the icons by label.
 
-import { P_CHORD } from "./proto.js";
+import { P_CHORD, P_LANES } from "./proto.js";
 import { BY_LABEL, BY_WAVE, MOD_DST, MOD_SRC, SPECIAL } from "./paramicons.js";
 
 /* group: {t: title, place, pages: [[title, scope, ids]]} or {t, mod: first id} (the matrix, 4 rows of SRC DST AMT);
@@ -12,7 +12,8 @@ import { BY_LABEL, BY_WAVE, MOD_DST, MOD_SRC, SPECIAL } from "./paramicons.js";
 export const LAYOUT = (pe0, engine) => [
   { t: "ENV", place: "sound", viz: "env", pages: [["ENV", 0, [1, 2, 3, 4]], ["ENV DEST", 0, [5, 6, 7, 8]]] },
   { t: "LFO", place: "sound", viz: "lfo", pages: [["LFO", 0, [9, 10, 11, 12]], ["LFO DEST", 0, [13, 14, 15, 16]]] },
-  { t: "EDIT", place: "sound", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]]] },
+  { t: "EDIT", place: "sound", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]],
+    ...(pe0 >= 91 && engine === "DRUM" ? [["LANES", 0, P_LANES.slice(0, 4)], ["LANES 2", 0, P_LANES.slice(4)]] : [])] },   /* lane levels 83..90 (1.1) */
   ...(pe0 >= 61 ? [{ t: "MOD", place: "sound", mod: 49 }] : []),
   ...(pe0 >= 81 && engine === "DIGITAL" ? [{ t: "OP ENV", place: "sound", pages: [   /* a FELUCCA_FM4=1 build only */
     ...[0, 1, 2, 3].map((k) => [`OP${k + 1}`, 0, [61 + 5 * k, 62 + 5 * k, 63 + 5 * k, 64 + 5 * k]]),
