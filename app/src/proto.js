@@ -12,6 +12,7 @@
 // - 1.1: parameter locks (INFO 4C 01 01, MOTION ops 5..7 with the kinds; opt.noLocks: not)
 // - 1.0.5: MENU_DESC ends with the item's tab (index, name: MENU_TABS; opt.noMenuTabs: not, as 1.0.4)
 // - 1.1: MENU items 12..14 CLICK, CLICK LEVEL, COUNT-IN (AUDIO), appended after USB SERIAL (INFO 4E 01 15)
+// - 1.2: MENU item 15 RESTORE LAST (SYSTEM), appended (INFO 4E 01 16)
 /*PROTO-BEGIN*/
 /* ---------------------------------------------------------------- protocol --- */
 const HDR = [0x7D, 0x46, 0x4C];
@@ -1367,6 +1368,8 @@ const MENU = [
   { id: 12, name: "CLICK", names: ["OFF", "REC", "ON"], def: 0, tab: 2 },
   { id: 13, name: "CLICK LEVEL", names: ["LOW", "MID", "HIGH"], def: 1, tab: 2 },
   { id: 14, name: "COUNT-IN", names: ["OFF", "1 BAR", "2 BARS"], def: 0, tab: 2 },
+  /* 1.2 (Discussion #130): the last session back at power-on (the autosave), appended, shown in SYSTEM */
+  { id: 15, name: "RESTORE LAST", names: ["ON", "OFF"], def: 0, tab: 3 },
 ];
 /* the MENU settings the device offers, in its menu's order (firmware without them: []); rq as the other readers */
 async function readDeviceMenu(rq, info) {
