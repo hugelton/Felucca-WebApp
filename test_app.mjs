@@ -467,6 +467,15 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
     const inst1 = readFileSync(join(s1, "webapp/installer/index.html"), "utf8"), ed1 = readFileSync(join(s1, "webapp/editor/index.html"), "utf8");
     ok(inst1.includes('<p id="try-p" hidden>') && ed1.includes('<meta name="felucca-try" content="">') && !existsSync(join(s1, "webapp/try")),
       "site: without --try (and no emulator there): no link");
+    const lic9 = join(dir, "fwlic9");
+    mkdirSync(join(lic9, "LICENSES"), { recursive: true });
+    writeFileSync(join(lic9, "LICENSE"), "GPL\n"); writeFileSync(join(lic9, "LICENSING.md"), "| The Sample Pack: drum sounds | GPL |\n");
+    writeFileSync(join(lic9, "LICENSES", "MIT-X.txt"), "M\n");
+    ok(site("ok.fwsc", "s9", "--licences", lic9, "--try", tr, "--next") === "", "site: builds with --try --next");
+    const inst9 = readFileSync(join(dir, "s9/webapp/installer/index.html"), "utf8"), ed9 = readFileSync(join(dir, "s9/webapp/editor/index.html"), "utf8");
+    ok(inst9.includes('<p id="next-p">') && inst9.includes('<p id="try-p" hidden>') && ed9.includes('<meta name="felucca-try" content="next">')
+       && inst9.includes("drum voices, Sample Pack and Fukiai icons"),
+      "site: --next: the links offer the emulator as a preview of the next version (the release's credits kept)");
     ok(/needs index.html/.test(site("ok.fwsc", "s8", "--licences", lic3, "--try", join(dir, "nowhere"))) && !existsSync(join(dir, "s8")),
       "site: --try without the three files: refused before anything is written");
   }

@@ -12,10 +12,11 @@
                               its fonts and their licences in fonts/
   webapp/editor-classic/      the earlier editor (editor.html + fukiai.ttf, FUKIAI-LICENSE.txt, fm1backup.js)
   webapp/try/                 with --try DIR: the emulator (index.html, worklet.js, felucca.wasm from the firmware's
-                              release), linked from the installer and the editor; without it: left as it is
+                              release), linked from the installer and the editor; without it: left as it is.
+                              --next: the emulator is a preview of the next version (the links say so)
   src/                        not touched (Felucca's sources go there)
 
-  make_site.py PACKAGE.fwsc VERSION OUT_DIR [--licences DIR] [--try DIR]
+  make_site.py PACKAGE.fwsc VERSION OUT_DIR [--licences DIR] [--try DIR [--next]]
 
 DIR: the firmware release's licence files, the ones that travel with the package: LICENSE,
 LICENSING.md and LICENSES/*.txt, and ATTRIBUTION.txt when the release has one (default: FELUCCA_LICENCES, else the folder above this one when it
@@ -68,7 +69,7 @@ def sample_pack_in(licensing):
     return any("not in the firmware" not in x.lower() for x in rows)
 
 
-def main(pkg, version, out, licences=None, try_dir=None):
+def main(pkg, version, out, licences=None, try_dir=None, next_=False):
     pkg, out = Path(pkg), Path(out)
     lic_root = licences_dir(licences)                # (before anything is written)
     if try_dir and not all((Path(try_dir) / f).is_file() for f in TRY_FILES):
@@ -108,10 +109,11 @@ def main(pkg, version, out, licences=None, try_dir=None):
         old.unlink()
     has_try = bool(try_dir) or (out / "webapp" / "try" / "index.html").is_file()   # (one already there stays linked)
     if has_try:
-        if html.count('<p id="try-p" hidden>') != 1:
-            raise SystemExit("index_pkg.html must have the try link once; update make_site.py")
-        html = html.replace('<p id="try-p" hidden>', '<p id="try-p">')
-        editor = editor.replace('<meta name="felucca-try" content="">', '<meta name="felucca-try" content="1">')
+        link = '<p id="next-p" hidden>' if next_ else '<p id="try-p" hidden>'
+        if html.count(link) != 1 or editor.count('<meta name="felucca-try" content="">') != 1:
+            raise SystemExit("index_pkg.html / app/index.html: the try link or meta changed; update make_site.py")
+        html = html.replace(link, link.replace(" hidden", ""))
+        editor = editor.replace('<meta name="felucca-try" content="">', f'<meta name="felucca-try" content="{"next" if next_ else "1"}">')
     if try_dir:
         (out / "webapp" / "try").mkdir(parents=True, exist_ok=True)
         for f in TRY_FILES:
@@ -155,6 +157,9 @@ def main(pkg, version, out, licences=None, try_dir=None):
 
 if __name__ == "__main__":
     a = sys.argv[1:]
+    nx = "--next" in a
+    if nx:
+        a.remove("--next")
     lic = None
     if "--licences" in a:
         k = a.index("--licences")
@@ -171,4 +176,4 @@ if __name__ == "__main__":
         del a[k:k + 2]
     if len(a) != 3:
         sys.exit(__doc__)
-    main(*a, licences=lic, try_dir=tr)
+    main(*a, licences=lic, try_dir=tr, next_=nx)
