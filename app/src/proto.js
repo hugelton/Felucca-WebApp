@@ -12,7 +12,8 @@
 // - 1.1: parameter locks (INFO 4C 01 01, MOTION ops 5..7 with the kinds; opt.noLocks: not)
 // - 1.0.5: MENU_DESC ends with the item's tab (index, name: MENU_TABS; opt.noMenuTabs: not, as 1.0.4)
 // - 1.1: MENU items 12..14 CLICK, CLICK LEVEL, COUNT-IN (AUDIO), appended after USB SERIAL (INFO 4E 01 15)
-// - 1.2: MENU item 15 RESTORE LAST (SYSTEM), appended (INFO 4E 01 16)
+// - 1.2: MENU item 15 RESTORE LAST (SYSTEM), appended (INFO 4E 01 16); item 16 SCALE LEDS (CONTROL), appended (INFO 4E 01 17)
+// - 1.2: ARP MODE (P_AMODE) gained DNUP UP+8 CONV DIVG PINKY THUMB WALK CHORD (values 7..14, appended)
 /*PROTO-BEGIN*/
 /* ---------------------------------------------------------------- protocol --- */
 const HDR = [0x7D, 0x46, 0x4C];
@@ -1370,6 +1371,8 @@ const MENU = [
   { id: 14, name: "COUNT-IN", names: ["OFF", "1 BAR", "2 BARS"], def: 0, tab: 2 },
   /* 1.2 (Discussion #130): the last session back at power-on (the autosave), appended, shown in SYSTEM */
   { id: 15, name: "RESTORE LAST", names: ["ON", "OFF"], def: 0, tab: 3 },
+  /* 1.2 (Discussion #127): the keys show the selected track's scale, appended, shown in CONTROL */
+  { id: 16, name: "SCALE LEDS", names: ["OFF", "ON"], def: 0, tab: 1 },
 ];
 /* the MENU settings the device offers, in its menu's order (firmware without them: []); rq as the other readers */
 async function readDeviceMenu(rq, info) {
@@ -1394,7 +1397,7 @@ function makeMockDevice(opt = {}) {
     D("FLT", F.BIPCT, -64, 63, 0), D("PIT", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("FX", F.BIPCT, -64, 63, 0),
     D("RATE", F.LFOHZ, 0, 127, 60), E("WAVE", ["SIN", "TRI", "SAW", "SQR", "S&H"], 0), D("PHS", F.INT, 0, 127, 0), D("FADE", F.TIME, 0, 127, 0),
     D("PIT", F.BIPCT, -64, 63, 0), D("FLT", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("AMP", F.PCT, 0, 127, 0),
-    E("MODE", ["OFF", "UP", "DN", "UPDN", "RND", "ORD", "REPEAT"], 0), E("RATE", NDIV, 2), D("OCT", F.INT, 1, 4, 1), D("GATE", F.PCT, 1, 127, 64),
+    E("MODE", ["OFF", "UP", "DN", "UPDN", "RND", "ORD", "REPEAT", "DNUP", "UP+8", "CONV", "DIVG", "PINKY", "THUMB", "WALK", "CHORD"], 0), E("RATE", NDIV, 2), D("OCT", F.INT, 1, 4, 1), D("GATE", F.PCT, 1, 127, 64),
     D("SWG", F.PCT, 0, 100, 0), D("PROB", F.PCT, 0, 127, 127), E("HOLD", NONOFF, 0), E("ORD", ["NOTE", "PLAY"], 0),
     D("ROOT", F.NOTE, 0, 11, 0), E("SCL", ["CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM", "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"], 0), E("QNT", ["OFF", "SNAP", "WHITE", "SEQ"], 0), D("TRN", F.SEMI, -24, 24, 0),
     D("LEN", F.STEPS, 1, 64, 16), E("DIV", NDIV, 2), D("SWG", F.PCT, 0, 100, 0), D("GATE", F.PCT, 1, 127, 64),
