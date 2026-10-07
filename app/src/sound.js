@@ -11,7 +11,7 @@ import { fm6Screen } from "./fm6.js";
 import { G_SKIP, HEAD_IC, LAYOUT, paramIcon, visible } from "./layout.js";
 import { card, cells, paramRow } from "./parts.js";
 import { knownLayout } from "./device.js";
-import { t } from "./text.js";
+import { getLang, t } from "./text.js";
 
 const NS = "http://www.w3.org/2000/svg";
 const svg = (tag, a = {}) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); return e; };
@@ -153,7 +153,7 @@ export function soundScreen(root, ui) {
     drawEnv(); drawLfo();
     built = signature();
   }
-  const signature = () => (dev && dev.dump ? JSON.stringify([dev.dump.engine, dev.dump.preset, dev.sel, dev.pdesc.slice(dev.info.pe0)]) : "");
+  const signature = () => (dev && dev.dump ? JSON.stringify([getLang(), dev.dump.engine, dev.dump.preset, dev.sel, dev.pdesc.slice(dev.info.pe0)]) : "");
   return {
     /* the whole sound (after a load, RELOAD, another track): rebuilt when its shape changed, else values only */
     show(device) { if (device !== dev || signature() !== built) build(device); else refresh(); },

@@ -30,16 +30,18 @@ let place = PLACES.some(([p]) => p === store.get(PLACE_KEY)) ? store.get(PLACE_K
 
 /* ---- messages: the log, and its last line at the right of the help bar ---- */
 const messages = [];
+/* text: a string, or () => a string (a message by its key: shown again in the language chosen later) */
+const said = (m) => (typeof m.text === "function" ? m.text() : m.text);
 function say(text, level = "info") {
   const now = new Date();
   messages.unshift({ time: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`, text, level });
   messages.length = Math.min(messages.length, 100);
-  $("#msg-t").textContent = text;
+  $("#msg-t").textContent = said(messages[0]);
   $("#msgs").classList.toggle("warn", level !== "info");
   if ($("#log").open) drawLog();
 }
-const sayK = (k, extra = "", level) => say(t(k) + (extra ? " " + extra : ""), level || (["error", "noreply", "lost", "nodevice", "denied", "nomidi", "rejected"].includes(k) ? "warn" : "info"));
-function drawLog() { $("#log-list").replaceChildren(...messages.map((m) => el("li", {}, el("time", { text: m.time }), el("span", { class: m.level === "info" ? null : "warn", text: m.text })))); }
+const sayK = (k, extra = "", level) => say(() => t(k) + (extra ? " " + extra : ""), level || (["error", "noreply", "lost", "nodevice", "denied", "nomidi", "rejected"].includes(k) ? "warn" : "info"));
+function drawLog() { $("#log-list").replaceChildren(...messages.map((m) => el("li", {}, el("time", { text: m.time }), el("span", { class: m.level === "info" ? null : "warn", text: said(m) })))); }
 
 /* ---- the help bar: the name of what was touched and its value ---- */
 onHelp((name, value) => $("#help").replaceChildren(el("b", { text: name }), value ? document.createTextNode("  " + value) : ""));
@@ -161,6 +163,9 @@ function relabel() {
   $("#rail").setAttribute("aria-label", t("sound") + " · " + t("seq"));
   $("#tracks").setAttribute("aria-label", t("tracks"));
   $("#connect").lastElementChild.textContent = t(dev ? "disconnect" : "connect");
+  if (!$("#update").hidden) $("#update-t").textContent = `${t("update").toUpperCase()} v${$('meta[name="felucca-release"]').content}`;
+  if (messages.length && !connecting) $("#msg-t").textContent = said(messages[0]);   /* (a key's message in the new language) */
+  if ($("#log").open) drawLog();
 }
 
 /* ---- header: state, tracks, flash ---- */
@@ -226,7 +231,7 @@ async function connect() {
     relabel();
     d.on("progress", (p) => { if (p.what === "desc") $("#msg-t").textContent = `${t("reading")} ${p.n}/${p.total}`; else if (p.what === "steps") $("#msg-t").textContent = `${t("steps")} ${p.n}/${p.total}`; });
     d.on("param", (p) => { sound.param(p.scope, p.id, p.value); seq.param(p.scope, p.id, p.value); settings.param(p.scope, p.id, p.value); });
-    const settle = () => { $("#msg-t").textContent = messages.length ? messages[0].text : ""; };   /* (the progress line goes) */
+    const settle = () => { $("#msg-t").textContent = messages.length ? said(messages[0]) : ""; };   /* (the progress line goes) */
     d.on("reload", () => { sound.show(d); seq.show(d); mix.show(d); library.refresh(); samples.refresh(); project.refresh(); settings.show(d); drawTracks(); drawStore(); drawState(); settle(); });
     d.on("mix", () => { drawTracks(); if (d.loaded) mix.all(); });
     d.on("track", (k) => { drawTracks(); mix.track(k); });
