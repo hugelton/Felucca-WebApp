@@ -18,7 +18,7 @@ const TIMES = ["NOTE", "TIE", "REST"];
 export const autoName = (version) => (cmpVersion(version, "1.0.4") >= 0 ? "AUTOMATION" : "MOTION");
 /* the ids MOTION can record (EDITOR_PROTOCOL.md v7, the device's motion_param) */
 export const MOTION_IDS = [...Array(17).keys(), 33, 34, 35, 36, 38, 39, 44, ...Array.from({ length: 20 }, (_, k) => 61 + k), ...Array.from({ length: 8 }, (_, k) => 83 + k)];
-const EMPTY = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0, chance: 100 };
+const EMPTY = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0, chance: 100, ratchet: 1 };
 export const stepOn = (s) => !!s && s.time === 0 && (s.n > 0 || (s.hit | 0) > 0);
 export const notesText = (s) => s.notes.slice(0, s.n).map(noteName).join(" ");
 /* turning a step on: the last note played before it (or C4) at velocity 96 */
@@ -82,7 +82,7 @@ export function seqScreen(root, ui) {
         return el("button", {
           type: "button", role: "gridcell", "data-k": k, tabindex: k === cur ? "0" : "-1",
           class: "step" + (on ? " on" : "") + (on && s.flags & 1 ? " acc" : "") + (tie ? " tie" : "") + (out ? " out" : ""),
-          "aria-current": String(k === cur), "aria-label": `${k + 1}: ${on ? notesText(s) || "HIT" : tie ? "TIE" : "REST"}${on && s.flags & 1 ? " ACC" : ""}${on && s.flags & 2 ? " SLD" : ""}`,
+          "aria-current": String(k === cur), "aria-label": `${k + 1}: ${on ? notesText(s) || "HIT" : tie ? "TIE" : "REST"}${on && s.flags & 1 ? " ACC" : ""}${on && s.flags & 2 ? " SLD" : ""}${on && s.ratchet > 1 ? " x" + s.ratchet : ""}`,
           onclick: () => { cur = k; drawDetail(); markCursor(); },
           ondblclick: () => write(k, stepToggled(dev.steps, k)),
           onfocus: () => help(`${t("steps")} ${k + 1}`, on ? notesText(s) : tie ? "TIE" : "REST"),
@@ -91,7 +91,7 @@ export function seqScreen(root, ui) {
         el("span", { class: "k", text: String(k + 1) }),
         s.chance != null && s.chance < 100 && on ? el("span", { class: "ch", text: s.chance + "%" }) : null,
         el("span", { class: "x", text: on ? first : tie ? "—" : "" }),
-        on && s.flags & 2 ? el("span", { class: "sl", "aria-hidden": "true", text: "~" }) : null);
+        on && (s.flags & 2 || s.ratchet > 1) ? el("span", { class: "sl", "aria-hidden": "true", text: (s.flags & 2 ? "~" : "") + (s.ratchet > 1 ? "x" + s.ratchet : "") }) : null);
       }));
     }
     if (focusIn) { const b = gridEl.querySelector('[tabindex="0"]'); if (b) b.focus({ preventScroll: true }); }
@@ -152,6 +152,9 @@ export function seqScreen(root, ui) {
     rows.push(paramRow({ fmt: F.INT, min: 0, max: 127, def: 96, label: "VEL", unit: "" }, s.vel, (v, final) => { if (final) set({ vel: v }); }, { icon: "symbol_volume" }).el);
     if (dev.info.chance) rows.push(paramRow({ fmt: F.PCT, min: 0, max: 100, def: 100, label: "CHANCE", unit: "%" }, s.chance ?? 100,
       (v, final) => { if (final) set({ chance: v }); }, { icon: "symbol_dice" }).el);
+    if (dev.info.chance && dev.info.ratchet)          /* RATCH (1.0.5): the step's hits, x1 .. x4 (as the device's STEP page) */
+      rows.push(el("div", { class: "enum" }, el("span", { class: "lbl", text: "RATCH" }),
+        cells(Array.from({ length: dev.info.ratchet }, (_, i) => "x" + (i + 1)), (s.ratchet || 1) - 1, (i) => set({ ratchet: i + 1, chance: s.chance ?? 100 }), "RATCH").el));
     const flag = (bit, name) => el("button", { type: "button", class: "chip", "aria-pressed": String(!!(s.flags & bit)),
       onclick: () => set({ flags: s.flags ^ bit, time: s.time === 2 && (s.n || s.hit) ? 0 : s.time }) }, name);
     rows.push(el("div", { class: "chips" }, flag(1, "ACC"), flag(2, "SLD"),

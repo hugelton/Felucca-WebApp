@@ -145,6 +145,24 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   d.close();
 }
 {
+  /* ratchets (1.0.5: INFO 52 01 04, a byte after the chance): written, read back, cleared to x1; older firmware: none */
+  const m = proto.makeMockDevice();
+  const d = new Device(m.access);
+  await d.open();
+  const w = await d.writeStep(3, { n: 1, notes: [60, 0, 0, 0], time: 0, flags: 0, vel: 96, hit: 0, acc: 0, ratchet: 3 });
+  ok(d.info.ratchet === 4 && w && w.ratchet === 3 && w.chance === 100 && m.state.step[3].ratchet === 3,
+    "ratchet: written with the chance before it (x3), the device has it");
+  await d.clearSequence();
+  ok(m.state.step[3].ratchet === 1 && d.steps[3].ratchet === 1, "ratchet: a full clear sets x1 again");
+  d.close();
+  const m2 = proto.makeMockDevice({ noRatchet: true });
+  const d2 = new Device(m2.access);
+  await d2.open();
+  const w2 = await d2.writeStep(3, { n: 1, notes: [60, 0, 0, 0], time: 0, flags: 0, vel: 96, hit: 0, acc: 0, ratchet: 3 });
+  ok(!d2.info.ratchet && w2 && w2.ratchet === 1 && m2.state.step[3].ratchet === 1, "ratchet: firmware without it is not sent one");
+  d2.close();
+}
+{
   /* the MENU settings (1.0.4): read on open and again on request, set (clamped), USB SERIAL ends the connection */
   const m = proto.makeMockDevice();
   const d = new Device(m.access);
@@ -170,6 +188,8 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   const old = new Device(proto.makeMockDevice({ noMenu: true }).access);
   await old.open();
   ok(!old.info.menuCount && old.menu === null && await old.readMenu() === null, "menu: firmware without MENU settings is not asked");
+  ok(d.menu.every((x) => x.tab >= 0 && x.tabName === proto.MENU_TABS[x.tab]) && new Set(d.menu.map((x) => x.tab)).size === proto.MENU_TABS.length,
+    "menu: each setting's tab on the device (1.0.5), every tab used");
   old.close();
 }
 

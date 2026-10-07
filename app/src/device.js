@@ -525,11 +525,14 @@ export class Device {
 
   /* ---- steps (STEP_SET) and MOTION ---- */
   stepLen() { return Math.max(1, Math.min(this.info.nstep, this.dump.p[this.pSlen()] || 16)); }
-  /* step i becomes s ({n, notes[4], time, flags, vel, hit, acc, chance}); -> the step as the device has it */
+  /* step i becomes s ({n, notes[4], time, flags, vel, hit, acc, chance, ratchet}); -> the step as the device has it
+     (the ratchet goes only with the chance after it: 1.0.5) */
   async writeStep(k, s) {
     this.stepEdit.set(k, this.now());
     const st = { ...s };
     if (!this.info.chance) delete st.chance;
+    if (!this.info.ratchet || !this.info.chance) delete st.ratchet;
+    else if (st.ratchet != null && st.chance == null) st.chance = 100;
     try {
       this.steps[k] = parse[CMD.STEP_SET](await this.rq(req.stepSet(k, st), { key: "stepset:" + k }));
       this.stepEdit.set(k, this.now());
@@ -543,7 +546,7 @@ export class Device {
       for (let k = 0; k < this.info.nstep; k++) {
         if (k % 8 === 0) this.emit("progress", { what: "steps", n: k, total: this.info.nstep });
         this.steps[k] = parse[CMD.STEP_SET](await this.rq(req.stepSet(k, { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0,
-          ...(this.info.chance ? { chance: 100 } : {}) })));
+          ...(this.info.chance ? { chance: 100 } : {}), ...(this.info.chance && this.info.ratchet ? { ratchet: 1 } : {}) })));
       }
       if (this.info.motionMax) this.motion = parse[CMD.MOTION](await this.rq(req.motion(this.sel ?? 0, 2)));
       this.emit("steps", this);

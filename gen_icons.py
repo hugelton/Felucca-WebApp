@@ -42,14 +42,21 @@ def dicts(py):
 
 
 def menu_icons(fw, glyph):
-    """the MENU rows' icons (ui_menu.c draw_menu's ICO, in menu_items.c MI_NAME's order): name -> glyph"""
+    """the MENU's icons: up to 1.0.4 one per row (ui_menu.c draw_menu's ICO, in menu_items.c MI_NAME's order), from
+    1.0.5 one per tab (MTAB_ICON, MTAB_NAME): {"rows": name -> glyph, "tabs": tab name -> glyph}"""
     if not (fw / "src" / "menu_items.c").exists():
-        return {}
-    names = re.search(r"MI_NAME\[MI_COUNT\] = \{(.*?)\};", (fw / "src" / "menu_items.c").read_text(), re.S)
-    ico = re.search(r"static const uint16_t ICO\[MI_COUNT\] = \{(.*?)\};", (fw / "src" / "ui_menu.c").read_text(), re.S)
-    if not names or not ico:
-        raise SystemExit("gen_icons.py: no MI_NAME (menu_items.c) or ICO (ui_menu.c)")
-    return {n: glyph.get(i) or glyph.get("ICON_GENERIC") for n, i in zip(re.findall(r'"([^"]+)"', names.group(1)), re.findall(r"ICON_\w+", ico.group(1)))}
+        return {"rows": {}, "tabs": {}}
+    items, menu = (fw / "src" / "menu_items.c").read_text(), (fw / "src" / "ui_menu.c").read_text()
+    def pairs(names_re, icons_re):
+        n, i = re.search(names_re, items, re.S), re.search(icons_re, menu, re.S)
+        if not n or not i:
+            return None
+        return {k: glyph.get(v) or glyph.get("ICON_GENERIC") for k, v in zip(re.findall(r'"([^"]+)"', n.group(1)), re.findall(r"ICON_\w+", i.group(1)))}
+    rows = pairs(r"MI_NAME\[MI_COUNT\] = \{(.*?)\};", r"static const uint16_t ICO\[MI_COUNT\] = \{(.*?)\};")
+    tabs = pairs(r"MTAB_NAME\[MTAB_COUNT\] = \{(.*?)\};", r"static const uint16_t MTAB_ICON\[MTAB_COUNT\] = \{(.*?)\};")
+    if rows is None and tabs is None:
+        raise SystemExit("gen_icons.py: no MENU icons (ICO or MTAB_ICON in ui_menu.c)")
+    return {"rows": rows or {}, "tabs": tabs or {}}
 
 
 def table(fw):
@@ -99,8 +106,9 @@ def js(fw):
             "/* the MOD matrix: a source's icon by its value, a destination's (before E1..E8: those are the engine's own) */\n"
             f"export const MOD_SRC = {json.dumps(mods['src'])};\n"
             f"export const MOD_DST = {json.dumps(mods['dst'])};\n"
-            "/* the MENU settings' rows, by name */\n"
-            f"export const MENU_ICON = {q(mods['menu'])};\n"), missing
+            "/* the MENU: a row's icon by its name (the device draws none from 1.0.5), a tab's by its name (1.0.5) */\n"
+            f"export const MENU_ICON = {q(mods['menu']['rows'])};\n"
+            f"export const MENU_TAB_ICON = {q(mods['menu']['tabs'])};\n"), missing
 
 
 def main():

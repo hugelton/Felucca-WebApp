@@ -8,7 +8,7 @@
 import { el, store } from "./dom.js";
 import { G_SKIP, HEAD_IC, LAYOUT, paramIcon, placedGlobals, visible } from "./layout.js";
 import { card, cells, paramRow } from "./parts.js";
-import { MENU_ICON } from "./paramicons.js";
+import { MENU_ICON, MENU_TAB_ICON } from "./paramicons.js";
 import { knownLayout } from "./device.js";
 import { LANGS, getLang, setLang, t } from "./text.js";
 
@@ -58,21 +58,27 @@ export function settingsScreen(root, ui) {
     return card(t("device"), "port_usb_c", el("div", { class: "rows" }, ...out));
   }
 
-  /* the device's MENU (its order, its names); COLOR when the display card does not already show the theme */
+  /* the device's MENU (its names), a card per tab as on the device (1.0.5: DISPLAY CONTROL AUDIO SYSTEM, in tab order,
+     the rows in id order; 1.0.4: one card); COLOR when the display card does not already show the theme */
   function menu() {
     const items = (dev.menu || []).filter((m) => !(m.id === 0 && dev.preferences && dev.preferences.state.caps & 1));
-    if (!items.length) return null;
-    const out = items.map((m) => {
-      const d = m.kind === 0 ? { fmt: 8, min: m.min, max: m.max, def: m.min, label: m.name, unit: "", names: m.names }
-        : { fmt: 0, min: m.min, max: m.max, def: m.min, label: m.name, unit: m.unit, names: [] };
-      const r = paramRow(d, m.value, async (v) => {
-        if (m.name === "USB SERIAL" && v !== m.value && !(await ui.confirm(t("usbQ")))) { r.update(m.value, false); return; }
-        ui.prefResult(await dev.menuSet(m.id, v));
-      }, { icon: MENU_ICON[m.name] || "symbol_cog" });
-      menuRows.set(m.id, r);
-      return r.el;
+    if (!items.length) return [];
+    const tabs = [...new Set(items.map((m) => m.tab))].sort((x, y) => x - y);
+    return tabs.map((tab) => {
+      const its = items.filter((m) => m.tab === tab).sort((x, y) => x.id - y.id);
+      const name = tab < 0 ? "MENU" : its[0].tabName || "MENU";
+      return card(name, MENU_TAB_ICON[name] || "control_menu_lines", el("div", { class: "rows" }, ...its.map(row)));
     });
-    return card("MENU", "control_menu_lines", el("div", { class: "rows" }, ...out));
+  }
+  function row(m) {
+    const d = m.kind === 0 ? { fmt: 8, min: m.min, max: m.max, def: m.min, label: m.name, unit: "", names: m.names }
+      : { fmt: 0, min: m.min, max: m.max, def: m.min, label: m.name, unit: m.unit, names: [] };
+    const r = paramRow(d, m.value, async (v) => {
+      if (m.name === "USB SERIAL" && v !== m.value && !(await ui.confirm(t("usbQ")))) { r.update(m.value, false); return; }
+      ui.prefResult(await dev.menuSet(m.id, v));
+    }, { icon: MENU_ICON[m.name] || null });   /* (no icon: the device's rows have none from 1.0.5) */
+    menuRows.set(m.id, r);
+    return r.el;
   }
 
   function editor() {
@@ -113,8 +119,7 @@ export function settingsScreen(root, ui) {
       if (dev && dev.dump) grid.append(globals());
       const disp = dev && dev.dump ? display() : null;
       if (disp) grid.append(disp);
-      const mn = dev && dev.dump ? menu() : null;
-      if (mn) grid.append(mn);
+      if (dev && dev.dump) grid.append(...menu());
       grid.append(editor(), system());
       root.replaceChildren(grid);
     },

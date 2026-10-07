@@ -8,6 +8,8 @@
 // - MOTION set / delete refuse (rc 1) a step >= 64, a parameter that cannot be recorded and a value out of range
 // - INFO advertises the full backup (42 01 03) and BACKUP_LIST / GET / PUT answer as the firmware's (opt.noBackup: not)
 // - 1.0.4: the MENU settings (INFO 4E 01 count, MENU_DESC 72, MENU_SET 73; opt.noMenu: not), the firmware's items (MENU)
+// - 1.0.5: ratchets (INFO 52 01 04, a byte after the chance in steps; opt.noRatchet: not), MENU tabs
+// - 1.0.5: MENU_DESC ends with the item's tab (index, name: MENU_TABS; opt.noMenuTabs: not, as 1.0.4)
 /*PROTO-BEGIN*/
 /* ---------------------------------------------------------------- protocol --- */
 const HDR = [0x7D, 0x46, 0x4C];
@@ -72,6 +74,8 @@ function readHits(r, o) {
   if (r.i + 3 <= r.a.length) { const h = r.b(), c = r.b(), x = r.b(); o.hit = h | (x & 1) << 7; o.acc = (c | (x & 2) << 6) & o.hit; }
   o.chance = r.i < r.a.length ? r.b() : 100;
   if (o.chance > 100) throw new Error("Invalid step chance");
+  o.ratchet = r.i < r.a.length ? r.b() : 1;       /* RATCH (INFO 52 01): the step's hits 1..4; older firmware: 1 */
+  if (o.ratchet < 1 || o.ratchet > 4) throw new Error("Invalid step ratchet");
   return o;
 }
 
@@ -101,6 +105,7 @@ const parse = {
     }
     o.fm6 = null;                                 /* FM6 patches (cmds 68..71): the factory and bank slot counts */
     o.syncCaps = 0;                               /* live sync: bit 0 WATCH while on keeps pending pushes, bit 1 no RELOAD */
+    o.ratchet = 0;                                /* a step's ratchet (STEP_SET's byte after the chance), 0 = none */
     for (const p of [8, 11]) if (o.motionMax && trailer[p] === 0x46 && trailer[p + 1] === 1) {   /* for the editor's */
       o.fm6 = { factory: trailer[p + 2], bank: trailer[p + 3], caps: 0 };                         /* PRESET / G_ENGSEL */
       if (trailer[p + 4] === 0x53 && trailer[p + 5] === 1) o.syncCaps = trailer[p + 6] & 3;
@@ -108,6 +113,9 @@ const parse = {
       if (trailer[p + 7] === 0x50 && trailer[p + 8] === 1) o.fm6.caps = trailer[p + 9] & 3;
       /* MENU settings (1.0.4): the items MENU_DESC offers (index 0..menuCount-1) */
       if (trailer[p + 7] === 0x50 && trailer[p + 10] === 0x4E && trailer[p + 11] === 1) o.menuCount = trailer[p + 12];
+      let r = trailer[p + 7] === 0x50 ? p + 10 : p + 7;                                   /* RATCH after FM6 v2 */
+      if (trailer[r] === 0x4E && trailer[r + 1] === 1) r += 3;                            /* and the MENU settings (1.0.4) */
+      if (o.syncCaps && trailer[r] === 0x52 && trailer[r + 1] === 1) o.ratchet = trailer[r + 2];   /* RATCH: max hits (1.0.5) */
     }
     o.menuCount = o.menuCount || 0;
     return o;
@@ -242,13 +250,16 @@ const parse = {
     return o;
   },
   [CMD.FM6_ERASE](a) { return { index: a[0], rc: a[1] }; },
-  /* MENU settings: kind 0 an enum (one name per value min..max), 1 a number with a unit; id 127: no item at index */
+  /* MENU settings: kind 0 an enum (one name per value min..max), 1 a number with a unit; id 127: no item at index.
+     1.0.5: then the item's tab on the device (index, name; tab -1 / "" from older firmware); a kind this editor does
+     not know: no tab read (its bytes are not known) */
   [CMD.MENU_DESC](a) {
     const r = new Reader(a), o = { index: r.b(), id: r.b() };
     if (o.id === 127) return o;
-    Object.assign(o, { kind: r.b(), value: r.v(), min: r.v(), max: r.v(), name: r.s(), unit: "", names: null });
+    Object.assign(o, { kind: r.b(), value: r.v(), min: r.v(), max: r.v(), name: r.s(), unit: "", names: null, tab: -1, tabName: "" });
     if (o.kind === 1) o.unit = r.s();
     else if (o.kind === 0) o.names = Array.from({ length: o.max - o.min + 1 }, () => r.s());
+    if ((o.kind === 0 || o.kind === 1) && r.i < a.length) { o.tab = r.b(); o.tabName = r.s(); }
     return o;
   },
   [CMD.MENU_SET](a) { const r = new Reader(a); return { rc: r.b(), id: r.b(), value: r.v() }; },
@@ -274,7 +285,8 @@ const req = {
     const notes = [0, 1, 2, 3].map((k) => (st.notes[k] | 0) & 0x7F);
     return [CMD.STEP_SET, [i, n, ...notes, Math.max(0, Math.min(2, st.time | 0)), st.flags & 3, (st.vel | 0) & 0x7F,
       ...(st.hit == null && st.chance == null ? [] : hitsEnc(st.hit | 0, st.acc | 0)),
-      ...(st.chance == null ? [] : [Math.max(0, Math.min(100, st.chance | 0))])]];
+      ...(st.chance == null ? [] : [Math.max(0, Math.min(100, st.chance | 0))]),
+      ...(st.chance == null || st.ratchet == null ? [] : [Math.max(1, Math.min(4, st.ratchet | 0))])]];   /* (only after the chance) */
   },
   preset: (e, p) => [CMD.PRESET, [e & 0x7F, p & 0x7F]],
   project: (op, slot) => { if (![0, 1, 2].includes(op)) throw new Error("bad PROJECT op"); return [CMD.PROJECT, [op, slot & 3]]; },   /* 0 load, 1 save, 2 query */
@@ -746,22 +758,25 @@ function tailParams(p, n, pe0) {
   return out;
 }
 
-/* one pattern step as the firmware keeps it (up_pat_norm): a tie has no note, a rest no flags */
-const patNorm = (n, f) => (f & 4 ? [0, 4] : [n & 0x7F, n ? f & 3 : 0]);
+/* one pattern step as the firmware keeps it (up_pat_norm): a tie has no note, a rest no flags; flags 1 accent, 2 slide,
+   4 tie, 8 | 16 the ratchet - 1 (core.h SF_RATCH) */
+const patNorm = (n, f) => (f & 4 ? [0, 4] : [n & 0x7F, n ? f & 27 : 0]);
 /* sequencer steps (STEP_GET objects) -> 16-step pattern, as the firmware's UP_STORE does (up_pat_from):
    the first note of a NOTE step, flag 4 for a TIE step */
 function patternFromSteps(steps) {
   return Array.from({ length: UP.PAT }, (_, i) => {
     const s = steps[i];
     if (!s) return [0, 0];
-    return patNorm(s.time === 0 && s.n ? s.notes[0] : 0, s.time === 1 ? 4 : s.flags);
+    return patNorm(s.time === 0 && s.n ? s.notes[0] : 0, s.time === 1 ? 4 : (s.flags & 3) | ((s.ratchet || 1) - 1) << 3);
   });
 }
-/* pattern -> 16 STEP_SET objects, as the firmware loads one (load_pat16; velocity 96) */
+/* pattern -> 16 STEP_SET objects, as the firmware loads one (load_pat16; velocity 96); the ratchet is sent only with a
+   chance (req.stepSet) */
 function stepsFromPattern(pat) {
   return Array.from({ length: UP.PAT }, (_, i) => {
     const [n, f] = (pat && pat[i]) || [0, 0];
-    return { n: n ? 1 : 0, notes: [n & 0x7F, 0, 0, 0], time: f & 4 ? 1 : n ? 0 : 2, flags: n ? f & 3 : 0, vel: n ? 96 : 0 };
+    return { n: n ? 1 : 0, notes: [n & 0x7F, 0, 0, 0], time: f & 4 ? 1 : n ? 0 : 2, flags: n ? f & 3 : 0, vel: n ? 96 : 0,
+      ratchet: n ? (f >> 3 & 3) + 1 : 1 };
   });
 }
 const patternUsed = (pat) => !!pat && pat.some((x) => x && x[0]);
@@ -1324,15 +1339,18 @@ function fromPerc(pt, engines, pe0) {
 const engineLabel = (engines, e) => (e === 1 && (engines || [])[1] === "-" ? "FM6" : (engines || [])[e] ?? String(e));
 
 /* the firmware's MENU settings as MENU_DESC lists them (src/menu_items.c, src/editor_menu.c; test_web.mjs: == the
-   firmware's, build/host/menu.json): id, name, value names (COLOR: the palettes, UI_PALETTES), the default */
+   firmware's, build/host/menu.json): id, name, value names (COLOR: the palettes, UI_PALETTES), the default, (1.0.5)
+   the tab the device shows it in (MENU_TABS: its names, menu_items.c MTAB_NAME) */
+const MENU_TABS = ["DISPLAY", "CONTROL", "AUDIO", "SYSTEM"];
 const MENU = [
-  { id: 0, name: "COLOR", names: null, def: 0 }, { id: 1, name: "STYLE", names: ["FLAT", "LINE"], def: 0 },
-  { id: 2, name: "LARGE", names: ["OFF", "ON"], def: 0 }, { id: 3, name: "ANIM", names: ["ON", "OFF"], def: 0 },
-  { id: 4, name: "LEDS", names: ["OFF", "DIM LO", "DIM HI", "INV"], def: 2 },
-  { id: 5, name: "HOLD", names: ["0.3 s", "0.4 s", "0.5 s", "0.6 s"], def: 1 },
-  { id: 6, name: "KNOB ACCEL", names: ["OFF", "ON"], def: 0 }, { id: 7, name: "FX LATCH", names: ["OFF", "ON"], def: 0 },
-  { id: 8, name: "BPM LOCK", names: ["OFF", "ON"], def: 0 }, { id: 9, name: "SPEAKER EQ", names: ["FLAT", "LOWCUT", "BASS+"], def: 0 },
-  { id: 10, name: "USB LEVEL", names: ["MASTER", "FIXED"], def: 0 }, { id: 11, name: "USB SERIAL", names: ["ON", "OFF"], def: 0 },
+  { id: 0, name: "COLOR", names: null, def: 0, tab: 0 }, { id: 1, name: "STYLE", names: ["FLAT", "LINE"], def: 0, tab: 0 },
+  { id: 2, name: "LARGE", names: ["OFF", "ON"], def: 0, tab: 0 }, { id: 3, name: "ANIM", names: ["ON", "OFF"], def: 0, tab: 0 },
+  { id: 4, name: "LEDS", names: ["OFF", "DIM LO", "DIM HI", "INV"], def: 2, tab: 0 },
+  { id: 5, name: "HOLD", names: ["0.3 s", "0.4 s", "0.5 s", "0.6 s"], def: 1, tab: 1 },
+  { id: 6, name: "KNOB ACCEL", names: ["OFF", "ON"], def: 0, tab: 1 }, { id: 7, name: "FX LATCH", names: ["OFF", "ON"], def: 0, tab: 1 },
+  { id: 8, name: "BPM LOCK", names: ["OFF", "ON"], def: 0, tab: 1 },
+  { id: 9, name: "SPEAKER EQ", names: ["FLAT", "LOWCUT", "BASS+"], def: 0, tab: 2 },
+  { id: 10, name: "USB LEVEL", names: ["MASTER", "FIXED"], def: 0, tab: 2 }, { id: 11, name: "USB SERIAL", names: ["ON", "OFF"], def: 0, tab: 3 },
 ];
 /* the MENU settings the device offers, in its menu's order (firmware without them: []); rq as the other readers */
 async function readDeviceMenu(rq, info) {
@@ -1439,7 +1457,7 @@ function makeMockDevice(opt = {}) {
         P("KALIMBA", [0, 34, 16, 56, 100, 90, 0, 48], [0, 100, 127, 60], 0, 7), P("HAND DRUM", [2, 112, 76, 56, 44, 100, 14, 24], [0, 100, 127, 64], 0, 6),
         P("TOMS", [2, 0, 52, 40, 30, 100, 40, 30], [0, 100, 127, 70], 0, 2), P("DRONE STRING", [3, 127, 80, 88, 64, 100, 92, 0], [0, 100, 127, 90], 0, 3),
         P("HARP", [3, 8, 62, 74, 60, 90, 0, 0], [0, 100, 127, 80], 0, 3)] },
-    { name: "DRUM", titles: ["KIT", "HIT"], edit: [E("KIT", ["STD", "HAND", "CYM", "H+CYM", "80", "10", "66", "55", "77"], 0), D("TUNE", F.PCT, 0, 127, 64),
+    { name: "DRUM", titles: ["KIT", "HIT"], edit: [E("KIT", ["STD", "66", "10", "77", "80", "10", "66", "55", "77"], 0), D("TUNE", F.PCT, 0, 127, 64),
         D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("SNAP", F.PCT, 0, 127, 64), D("ACC", F.PCT, 0, 127, 100),
         E("KICK", ["PUNCH", "ROUND"], 0), D("DRV", F.PCT, 0, 127, 0)],
       presets: [P("DRUM KIT", [0, 64, 70, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12)] },
@@ -1490,7 +1508,7 @@ function makeMockDevice(opt = {}) {
   const newTrack = () => ({ engine: 0, preset: 0, fm6: FM6.INIT_PK.slice(),
     p: TP.map((d) => d.def).concat(new Array(8).fill(0)),
     motion: {on: true, events: []},
-    step: Array.from({ length: NSTEP }, () => ({ chance: 100, n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 })) });
+    step: Array.from({ length: NSTEP }, () => ({ chance: 100, ratchet: 1, n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 })) });
   const st = {
     tracks: [0, 1, 2, 3].map(newTrack), sel: 0, rec: 0,
     g: GP.map((d) => d.def),
@@ -1510,7 +1528,7 @@ function makeMockDevice(opt = {}) {
   const watchMs = opt.watchMs || 3000;
   const desc = (scope, id) => (scope === 0 && id < P_COUNT ? (id >= P_E0 ? ENG[st.engine].edit[id - P_E0] : TP[id])
     : scope === 1 && id < G_COUNT ? GP[id] : null);
-  const EMPTY = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 };
+  const EMPTY = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0, chance: 100, ratchet: 1 };
   const isDrum = () => ENG[st.engine].name === "DRUM";
   const clearSteps = () => st.step.forEach((s) => Object.assign(s, EMPTY, { notes: [0, 0, 0, 0] }));
   function toGrid(s) {                            /* eng_drum.c step_to_grid: a lane's own note becomes its hit */
@@ -1583,11 +1601,13 @@ function makeMockDevice(opt = {}) {
     return patternUsed(grid) ? { engine: st.engine, name, p: st.p.slice(), pattern: null, grid, fm6 }
       : { engine: st.engine, name, p: st.p.slice(), pattern: patternFromSteps(st.step), grid: null, fm6 };
   };
-  const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); };
-  function stepIn(x, a) {                         /* editor.c ed_step_put: n, 4 notes, time, flags, vel [, hits (3)] */
+  const ratchetOn = () => !!syncCaps() && !opt.noRatchet;   /* (INFO 52 01 04, after the sync tag) */
+  const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); if (ratchetOn()) b(x.ratchet ?? 1); };
+  function stepIn(x, a) {                         /* editor.c ed_step_put: n, 4 notes, time, flags, vel [, hits (3) [, chance [, ratchet]]] */
     x.n = Math.min(4, a[0]); x.notes = a.slice(1, 5); x.time = Math.min(2, a[5]); x.flags = a[6] & 3; x.vel = a[7];
     if (a.length >= 11) { x.hit = a[8] | (a[10] & 1) << 7; x.acc = (a[9] | (a[10] & 2) << 6) & x.hit; }
     if (a.length >= 12) x.chance = Math.min(100, a[11]);
+    if (a.length >= 13 && ratchetOn()) x.ratchet = Math.max(1, Math.min(4, a[12]));
   }
   /* a few user presets to start with, each with its preset's suggested pattern stored (as UP_STORE would) */
   [[0, 0, 0, "MY LEAD"], [1, FM6_E, 1, "GLASS BELL"], [2, 2, 3, "PHASE RESO"], [5, 3, 2, "8BIT ARP"]].forEach(([slot, e, p, name]) => {
@@ -1723,6 +1743,7 @@ function makeMockDevice(opt = {}) {
         b(i);
         if (!m) { b(127); break; }
         b(m.id); b(0); v(m.id === 0 ? st.palette : st.menu[i]); v(0); v(names.length - 1); s(m.name); names.forEach(s);
+        if (!opt.noMenuTabs) { b(m.tab); s(MENU_TABS[m.tab]); }   /* (1.0.5: the tab; opt.noMenuTabs: as 1.0.4) */
         break;
       }
       case CMD.MENU_SET: {
@@ -1777,7 +1798,7 @@ function makeMockDevice(opt = {}) {
         if (!opt.legacy && !opt.v3 && !opt.v5) {
           b(16);
           if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noBackup) { b(0x42); b(1); b(3); } if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(0); }
-            if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); if (!opt.noMenu) { b(0x4E); b(1); b(MENU.length); } } } }   /* (FM6 v2: no bank, preset patches; MENU settings) */
+            if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); if (!opt.noMenu) { b(0x4E); b(1); b(MENU.length); } } if (ratchetOn()) { b(0x52); b(1); b(4); } } }   /* (FM6 v2: no bank, preset patches; MENU settings; RATCH) */
         }
         break;
       case CMD.GET: case CMD.SET: {
@@ -2167,9 +2188,15 @@ async function readDevicePreferences(rq, info, names, previous = null) {
   }
   return { state, palettes, favorites, slots };
 }
-/* an enum value or a preset named like an earlier one is an alias kept for stored numbers (SAMPLE / GRAIN 1,
-   once TRANH: PIANO): the device loads the earlier one, the lists hide it. -> the first index with names[i] */
-function aliasOf(names, i) { const k = names ? names.indexOf(names[i]) : -1; return k >= 0 && k < i ? k : i; }
+/* an enum value or a preset named like another is an alias kept for stored numbers: the device loads the original,
+   the lists hide the alias (shown when set). The original: the first entry when it has that name (SAMPLE / GRAIN 1
+   and 4, once TRANH and PERC: PIANO 0), else the last with it (DRUM KIT 1..3, once HAND CYM H+CYM: 66 10 77 at 6 5 8;
+   EDITOR_PROTOCOL.md). -> the original's index */
+function aliasOf(names, i) {
+  if (!names || names[i] == null) return i;
+  const k = names[0] === names[i] ? 0 : names.lastIndexOf(names[i]);
+  return k >= 0 ? k : i;
+}
 
 /* #48: note divisions (1/4, 8T, 2BAR, ...) are listed by length, longest first, as the device's knobs step them
    (src/params.c enum_order); the values stay. Any other list: in value order. -> d's values in the order shown */
@@ -2215,5 +2242,5 @@ export {
   LIB, paramKeys, sameKeys, remapParams, tailParams, patNorm, patternFromSteps, stepsFromPattern, patternUsed, gridFromSteps,
   cleanPatch, libraryFile, readLibraryFile, FLASH_OPT, bank, capturePatch, TRACK_OWN, P_CHORD, trackOwn, auditionPatch,
   startWatch, mixer, FM6, FM4, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice,
-  readDevicePreferences, aliasOf, divLength, enumShown, ENGINE_ORDER, engineOrder, devicePresetRows, MENU, readDeviceMenu,
+  readDevicePreferences, aliasOf, divLength, enumShown, ENGINE_ORDER, engineOrder, devicePresetRows, MENU, MENU_TABS, readDeviceMenu,
 };
