@@ -1375,7 +1375,7 @@ const MENU = [
   /* 1.2 (Discussion #127): the keys show the selected track's scale, appended, shown in CONTROL */
   { id: 16, name: "SCALE LEDS", names: ["OFF", "ON"], def: 0, tab: 1 },
   /* 1.1.5: the screen and its backlight off after a while without panel input (the sound goes on), shown in DISPLAY */
-  { id: 17, name: "SCREEN OFF", names: ["NEVER", "5 MIN", "15 MIN", "30 MIN", "60 MIN"], def: 3, tab: 0 },
+  { id: 17, name: "SCREEN OFF", names: ["NEVER", "5 MIN", "15 MIN", "30 MIN", "60 MIN"], def: 0, tab: 0 },  // (1.1.5.1: NEVER by default; 1.1.5: 30 MIN)
 ];
 /* the MENU settings the device offers, in its menu's order (firmware without them: []); rq as the other readers */
 async function readDeviceMenu(rq, info) {

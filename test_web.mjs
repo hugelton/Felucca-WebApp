@@ -183,7 +183,7 @@ async function editorMock() {
        items[12].names.join() === "OFF,REC,ON" && items[12].value === 0 && items[13].names.join() === "LOW,MID,HIGH" &&
        items[13].value === 1 && items[14].names.join() === "OFF,1 BAR,2 BARS" && items[14].value === 0 &&
        items[15].names.join() === "ON,OFF" && items[15].value === 0 && items[16].names.join() === "OFF,ON" && items[16].value === 0 &&
-       items[17].names.join() === "NEVER,5 MIN,15 MIN,30 MIN,60 MIN" && items[17].value === 3 &&
+       items[17].names.join() === "NEVER,5 MIN,15 MIN,30 MIN,60 MIN" && items[17].value === 0 &&
        items.every((d) => d.kind === 0 && d.min === 0 && d.names.length === d.max - d.min + 1) &&
        eq(items[0].names, prefs.palettes) && items[0].value === m.state.palette &&
        items[4].names.join() === "OFF,DIM LO,DIM HI,INV" && items[4].value === 2 && items[5].value === 1,
