@@ -13,6 +13,7 @@
 // - 1.0.5: MENU_DESC ends with the item's tab (index, name: MENU_TABS; opt.noMenuTabs: not, as 1.0.4)
 // - 1.1: MENU items 12..14 CLICK, CLICK LEVEL, COUNT-IN (AUDIO), appended after USB SERIAL (INFO 4E 01 15)
 // - 1.2: MENU item 15 RESTORE LAST (SYSTEM), appended (INFO 4E 01 16); item 16 SCALE LEDS (CONTROL), appended (INFO 4E 01 17)
+// - 1.1.5: MENU item 17 SCREEN OFF (DISPLAY), appended (INFO 4E 01 18)
 // - 1.2: ARP MODE (P_AMODE) gained DNUP UP+8 CONV DIVG PINKY THUMB WALK CHORD (values 7..14, appended)
 /*PROTO-BEGIN*/
 /* ---------------------------------------------------------------- protocol --- */
@@ -1373,6 +1374,8 @@ const MENU = [
   { id: 15, name: "RESTORE LAST", names: ["ON", "OFF"], def: 0, tab: 3 },
   /* 1.2 (Discussion #127): the keys show the selected track's scale, appended, shown in CONTROL */
   { id: 16, name: "SCALE LEDS", names: ["OFF", "ON"], def: 0, tab: 1 },
+  /* 1.1.5: the screen and its backlight off after a while without panel input (the sound goes on), shown in DISPLAY */
+  { id: 17, name: "SCREEN OFF", names: ["NEVER", "5 MIN", "15 MIN", "30 MIN", "60 MIN"], def: 3, tab: 0 },
 ];
 /* the MENU settings the device offers, in its menu's order (firmware without them: []); rq as the other readers */
 async function readDeviceMenu(rq, info) {
