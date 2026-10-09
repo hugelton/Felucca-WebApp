@@ -185,6 +185,34 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   o.close();
 }
 {
+  /* #203: a slot's RATE and BITS (editor only: the header's per-zone rate, a crush before the ADPCM); the defaults
+     are what the editor always wrote */
+  const S = await import("./app/src/samples.js");
+  const tone = (n, sr) => Float64Array.from({ length: n }, (_, i) => Math.sin(i * 2 * Math.PI * 220 / sr) * 0.8);
+  const d = new S.Draft();
+  d.add("A3.wav", tone(22050, 22050), { raw44: tone(44100, 44100) });
+  const old = proto.buildSlot(d.name, d.zones.map((z) => ({ s: z.s, root: z.root })));
+  const def = d.build();
+  ok(d.rate === 22050 && d.bits === 16 && JSON.stringify([...def.hdr]) === JSON.stringify([...old.hdr]) && JSON.stringify([...def.data]) === JSON.stringify([...old.data]),
+    "#203: the defaults (22.05 kHz, 16 bit) write exactly what the editor wrote before");
+  const rateQ = (h) => new DataView(h.buffer).getUint32(32 + 16, true);
+  const b22 = d.bytes;
+  d.setRate(11025); const lo = d.build();
+  ok(Math.abs(d.bytes - b22 / 2) < 8 && lo.data.length === d.bytes && rateQ(lo.hdr) === 16384, "#203: 11.025 kHz: half the size, the header's rate 11025 / 44100 (the device plays it at its pitch)");
+  d.setRate(44100); const hi = d.build();
+  ok(d.hiOk && Math.abs(d.bytes - b22 * 2) < 8 && rateQ(hi.hdr) === 65536, "#203: 44.1 kHz from the file's own audio: twice the size, rate 1");
+  const r2 = new S.Draft(); r2.add("REC", tone(22050, 22050)); r2.setRate(44100);
+  ok(!r2.hiOk && r2.rateUsed === 22050, "#203: 44.1 kHz not offered without it (a recording): 22.05 kHz");
+  d.setRate(22050); d.setBits(4);
+  const cr = d.render(d.zones[0]);
+  ok(cr.every((x) => x % 4096 === 0) && d.bytes === b22, "#203: 4 bit: the audio kept to 16 levels, the size unchanged (the stored format is the device's)");
+  const m = proto.makeMockDevice(), dv = new Device(m.access);
+  await dv.open();
+  d.setRate(11025); d.setBits(8);
+  ok(await dv.smpWrite(0, d.build()) && dv.smp.slots[0].zones === 1, "#203: an 11.025 kHz 8-bit slot written to the device (mock)");
+  dv.close();
+}
+{
   /* PIANO HD (1.4): the files beside the editor written to a user slot as they are, read back as the device lists it */
   const { createHash } = await import("node:crypto");
   const hdr = readFileSync(join(APP, "samples/PIANO_HD.hdr")), data = readFileSync(join(APP, "samples/PIANO_HD.bin"));
@@ -694,7 +722,7 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
       ["dev.bankLoad(", "dev.bankStore(", "dev.bankGet(", "dev.bankErase(", "dev.bankRefresh()", "dev.bankAll()", "dev.bankPut("]],
     ["dnd", "drag between the library and the bank", "libview.js", ["text/x-felucca-lib", "text/x-felucca-slot"]],
     ["samples", "samples: files, drop, zones, roots, keys, trim, auto trim, preview, record, write, erase", "sampview.js",
-      ["decodeAudio(", '"drop"', "d.setRoot(", "d.keys", "drafts[k].trim(", "d.autoTrim(", "play(z)", "getUserMedia(", "dev.smpWrite(", "dev.smpErase("]],
+      ["decodeAudio(", '"drop"', "d.setRoot(", "d.keys", "drafts[k].trim(", "d.autoTrim(", "play(z, d)", "getUserMedia(", "dev.smpWrite(", "dev.smpErase("]],
     ["projects", "projects A..D: load, save", "project.js", ["dev.project(0, k)", "dev.project(1, k)"]],
     ["song", "the song chain: rows, repeats, play / stop", "project.js", ["dev.songOp(1, rows)", "dev.songOp(play ? 3 : 2)"]],
     ["backup", "the full backup: save, restore", "project.js", ["dev.backupSave(", "dev.backupCheck(", "dev.backupRestore("]],

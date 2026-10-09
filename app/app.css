@@ -343,6 +343,8 @@ input.text.num { width: 6.5em; min-height: 32px; background: var(--surf); }
 .songrow .n { font-size: .75rem; font-weight: 600; color: var(--mid); text-align: center; }
 .songrow.at .n { color: var(--accent); }
 .songrow.at .pick b { color: var(--accent); }
+/* a sample slot's RATE and BITS */
+.quality { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 /* MIDI LEARN (1.5): CC -> track and parameter, a delete; the add row */
 .learnrow { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
 .learnadd { display: grid; grid-template-columns: 64px 64px minmax(0, 1fr) auto; gap: 6px; }

@@ -7,7 +7,7 @@
 
 import { SMP, noteName, parseNote, resample, zoomView } from "./proto.js";
 import { el, ic, put } from "./dom.js";
-import { Draft, MAX_DATA, NAME_MAX, cleanName, decodeAudio } from "./samples.js";
+import { BITS, Draft, MAX_DATA, NAME_MAX, RATES, cleanName, decodeAudio } from "./samples.js";
 import { card, help } from "./parts.js";
 import { t } from "./text.js";
 
@@ -25,10 +25,10 @@ const REC_WORKLET = `registerProcessor("felucca-rec", class extends AudioWorklet
     return true;
   }
 });`;
-/* the browser's decoder for what is not a plain WAV: mono at SMP.RATE */
-async function browserDecode(buf) {
+/* the browser's decoder for what is not a plain WAV: mono at rate */
+async function browserDecode(buf, rate = SMP.RATE) {
   const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-  const ab = await new Ctx(1, 1, SMP.RATE).decodeAudioData(buf.slice(0));
+  const ab = await new Ctx(1, 1, rate).decodeAudioData(buf.slice(0));
   const x = new Float64Array(ab.length);
   for (let c = 0; c < ab.numberOfChannels; c++) { const d = ab.getChannelData(c); for (let i = 0; i < d.length; i++) x[i] += d[i] / ab.numberOfChannels; }
   return x;
@@ -187,13 +187,15 @@ export function samplesScreen(root, ui) {
     drawAll();
   }
 
-  function play(z) {
+  /* zone z as the slot will hold it (its RATE and BITS: what the device will play) */
+  function play(z, d) {
     try {
       if (preview && preview.src) preview.src.stop();
       preview = preview || { ctx: new AudioContext() };
       preview.ctx.resume().catch(() => {});
-      const buf = preview.ctx.createBuffer(1, z.s.length, SMP.RATE), ch = buf.getChannelData(0);
-      for (let i = 0; i < z.s.length; i++) ch[i] = z.s[i] / 32768;
+      const s = d ? d.render(z) : z.s, rate = d ? d.rateUsed : SMP.RATE;
+      const buf = preview.ctx.createBuffer(1, s.length, rate), ch = buf.getChannelData(0);
+      for (let i = 0; i < s.length; i++) ch[i] = s[i] / 32768;
       preview.src = preview.ctx.createBufferSource();
       preview.src.buffer = buf; preview.src.connect(preview.ctx.destination); preview.src.start();
     } catch { /* no audio output */ }
@@ -203,7 +205,12 @@ export function samplesScreen(root, ui) {
     const d = drafts[k];
     for (const f of list) {
       if (d.full) break;
-      try { d.add(f.name, await decodeAudio(await f.arrayBuffer(), browserDecode)); }
+      try {
+        const buf = await f.arrayBuffer(), raw = await decodeAudio(buf, browserDecode);
+        let raw44 = null;                           /* (the same at 44100 Hz: the slot's RATE may take it) */
+        try { raw44 = await decodeAudio(buf, browserDecode, 44100); } catch { raw44 = null; }
+        d.add(f.name, raw, { raw44 });
+      }
       catch (e) { ui.say(`${f.name}: ${e.message}`, "warn"); }
     }
     drawSlot(k);
@@ -222,6 +229,20 @@ export function samplesScreen(root, ui) {
     } finally { busy = false; drawAll(); }
   }
   const $msg = (s) => ui.progress && ui.progress(s);
+  /* the slot's RATE (lower: smaller and lo-fi, the device plays it at its pitch; 44.1 kHz: when every file has it) and
+     BITS (a lo-fi crush); the first of each is what the editor always stored */
+  const khz = (r) => `${(r / 1000).toFixed(r % 1000 ? (r % 100 ? 3 : 2) : 1).replace(/\.?0+$/, "")} kHz`;
+  function quality(k, d) {
+    const rate = el("select", { "aria-label": "RATE", disabled: busy },
+      ...RATES.map((r) => el("option", { value: r, text: khz(r), disabled: r === 44100 && !d.hiOk, selected: r === d.rateUsed })));
+    rate.addEventListener("change", () => { d.setRate(+rate.value); drawSlot(k); });
+    const bits = el("select", { "aria-label": "BITS", disabled: busy },
+      ...BITS.map((b) => el("option", { value: b, text: `${b} bit`, selected: b === d.bits })));
+    bits.addEventListener("change", () => { d.setBits(+bits.value); drawSlot(k); });
+    return el("div", { class: "quality" },
+      el("label", { class: "pick sel" }, el("span", { class: "lbl", text: "RATE" }), el("b", { text: khz(d.rateUsed) }), rate),
+      el("label", { class: "pick sel" }, el("span", { class: "lbl", text: "BITS" }), el("b", { text: `${d.bits}` }), bits));
+  }
 
   /* PIANO HD (1.4: the built-in PIANO is lo-fi now): the 1.0 .. 1.1.5 piano as a user slot, from the files beside the
      page (samples/, pinned here), written as they are (never through the WAV import: it would re-encode them); then
@@ -287,7 +308,7 @@ export function samplesScreen(root, ui) {
           el("span", { class: "lbl", text: `${noteName(keys[i][0])}–${noteName(keys[i][1])}` }),
           el("span", { class: "lbl", text: `${(z.s.length / SMP.RATE).toFixed(2)} s` }),
           el("span", { class: "rowacts" },
-            el("button", { type: "button", class: "iconbtn sm", "aria-label": `▶ ${z.fname}`, onclick: () => play(z) }, ic("control_play_f")),
+            el("button", { type: "button", class: "iconbtn sm", "aria-label": `▶ ${z.fname}`, onclick: () => play(z, d) }, ic("control_play_f")),
             el("button", { type: "button", class: "btn sm", disabled: busy || recActive(), onclick: () => { d.autoTrim(i); drawSlot(k); } }, "AUTO"),
             el("button", { type: "button", class: "iconbtn sm", "aria-label": `× ${z.fname}`, disabled: busy || recActive(), onclick: () => { d.remove(i); drawSlot(k); } }, ic("symbol_cross")))),
         trimView(k, i));
@@ -307,6 +328,7 @@ export function samplesScreen(root, ui) {
           el("span", { class: d.tooBig ? "lbl over" : "lbl", text: d.zones.length ? `${kib(d.bytes)} / ${kib(MAX_DATA)} KiB · ${d.zones.length} / ${SMP.MAX_ZONES}` : "" }),
           on ? el("span", { class: "reclevel" }, el("i")) : null, on ? el("span", { class: "lbl rectime" }) : null,
           inputs.length ? el("label", { class: "pick sel" }, el("span", { class: "lbl", text: "IN" }), el("b", { text: (inputs.find((x) => x.deviceId === recDevice) || {}).label || "—" }), inputSel) : null),
+        d.zones.length ? quality(k, d) : null,
         acts, busy ? el("div", { class: "meter wprog" }, el("i", { style: "width:0" })) : null,
         ...zones), file);
     c.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); c.classList.add("over"); } });

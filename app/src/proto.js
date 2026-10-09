@@ -774,7 +774,8 @@ function rootFromName(name) {
 }
 
 /* zones: [{s: Int16Array (22050 Hz), root, lo?, hi?}] -> {hdr (480 B), data, zones} (sampleio.user_slot) */
-function buildSlot(name, zonesIn) {
+/* rate: the zones' sample rate (Hz; the header's per-zone rate: the device plays them at their pitch whatever it is) */
+function buildSlot(name, zonesIn, rate0 = SMP.RATE) {
   const zones = [], parts = [];
   let len = 0;
   for (const z of zonesIn) {
@@ -803,7 +804,7 @@ function buildSlot(name, zonesIn) {
   for (let i = 0; i < nm.length; i++) hdr[8 + i] = nm.charCodeAt(i);
   v.setUint32(16, len, true);
   v.setUint32(20, crc32(data), true);
-  const rate = pyRound(SMP.RATE / 44100 * 65536);
+  const rate = pyRound(rate0 / 44100 * 65536);
   zones.forEach((z, j) => {
     const b = 32 + j * 28;
     [z.off, z.n, z.ls, z.le, rate].forEach((x, k) => v.setUint32(b + k * 4, x >>> 0, true));
