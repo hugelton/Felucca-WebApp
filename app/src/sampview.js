@@ -296,7 +296,9 @@ export function samplesScreen(root, ui) {
       el("div", { class: "slothead" },
         el("b", { text: u.zones ? u.name || "—" : t("empty") }),
         el("span", { class: "lbl", text: u.zones ? `${u.zones} ZONES · ${u.kib} KiB` : "" }),
-        dev.info.motionCap ? el("button", { type: "button", class: "btn sm", disabled: busy || recActive(), onclick: () => pianoHd(k) }, ic("symbol_download"), "PIANO HD") : null,
+        /* (1.5: SAMPLE's built-in PIANO is that piano again, P_E0 >= 103: nothing to install; a slot holding it stays) */
+        dev.info.pe0 >= 103 ? (k === 0 ? el("span", { class: "lbl", text: `PIANO HD · ${t("pianoBuiltIn")}` }) : null)
+          : dev.info.motionCap ? el("button", { type: "button", class: "btn sm", disabled: busy || recActive(), onclick: () => pianoHd(k) }, ic("symbol_download"), "PIANO HD") : null,
         el("button", { type: "button", class: "btn sm", disabled: busy || !u.zones, onclick: async () => { if (await ui.confirm(`ERASE USR${k + 1}?`)) { busy = true; drawAll(); try { await dev.smpErase(k); } finally { busy = false; drawAll(); } } } }, ic("symbol_trash"), t("erase"))),
       el("div", { class: "meter", role: "img", "aria-label": `${u.kib} / ${dev.smp.slotKiB} KiB` }, el("i", { style: `width:${(u.kib / dev.smp.slotKiB * 100).toFixed(1)}%` })),
       el("div", { class: "draft" },

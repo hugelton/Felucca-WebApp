@@ -191,6 +191,8 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   const sv = readFileSync(join(APP, "src/sampview.js"), "utf8");
   ok(hdr.length === 480 && data.length === 41345 && sv.includes(createHash("sha256").update(hdr).digest("hex")) && sv.includes(createHash("sha256").update(data).digest("hex")),
     "PIANO HD: the shipped files are the ones the page pins (size, SHA-256)");
+  ok(/dev\.info\.pe0 >= 103 \? \(k === 0 \? el\("span"[^\n]*pianoBuiltIn/.test(sv) && /: dev\.info\.motionCap \? el\("button"[^\n]*pianoHd\(k\)/.test(sv),
+    "PIANO HD: offered on 1.2 .. 1.4 (motion capacity), not on 1.5 (P_E0 103: built in again)");
   const m = proto.makeMockDevice(), d = new Device(m.access);
   await d.open();
   ok(await d.smpWrite(1, { hdr: new Uint8Array(hdr), data: new Uint8Array(data) }) && d.smp.slots[1].name === "PIANO HD" && d.smp.slots[1].zones === 5,
