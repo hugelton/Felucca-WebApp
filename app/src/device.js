@@ -114,7 +114,7 @@ export class Device {
       this.keys = paramKeys(this.pdesc, i.pe0, i.pcount);
       if (i.ntrk) this.sel = parse[CMD.TRACK](await this.rq(req.track())).sel;
       this.dump = await this.readDump();
-      if (i.chainRows) this.song = parse[CMD.SONG](await this.rq(req.song()));
+      if (i.chainRows) this.song = parse[CMD.SONG](await this.rq(req.song(0, [], !!i.songLanes)));
       await this.loadSteps();
       if (i.ntrk) await this.readMixer();
       this.watch = await startWatch((r, o) => this.rq(r, o));
@@ -358,7 +358,7 @@ export class Device {
     const u = await bank.get((r, o) => this.rq(r, o), this.info, slot);
     if (!u.used) return null;
     const pt = { name: u.name, engine: u.engine, engineName: this.info.engines[u.engine], p: u.p, pattern: u.pattern, grid: u.grid, tags: ["device"],
-      fm6: u.fm6 };   /* (an FM6 sound's own patch, 1.0.3) */
+      fm6: u.fm6, ...(u.category ? { category: u.category } : {}) };   /* (an FM6 sound's own patch, 1.0.3; the category, 1.4) */
     return reservedFm4(this.info.engines, u.engine) ? fromDigital(pt, this.info.engines, this.info.pe0) : pt;
   }
   bankGet(slot) { return this.op(() => this.readSlot(slot)); }
@@ -371,9 +371,20 @@ export class Device {
         this.emit("progress", { what: "bank", n: x.slot + 1, total: this.bank.total });
         const u = await bank.get((r, o) => this.rq(r, o), this.info, x.slot);
         if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, pattern: u.pattern, grid: u.grid, slot: x.slot, fm6: u.fm6,
+          ...(u.category ? { category: u.category } : {}),
           engineName: reservedFm4(this.info.engines, u.engine) ? "DIGITAL" : this.info.engines[u.engine] });
       }
       return out;
+    });
+  }
+  /* a used slot's category (1.4): its sound read and written back with it */
+  bankCategory(slot, cat) {
+    return this.op(async () => {
+      const u = await bank.get((r, o) => this.rq(r, o), this.info, slot);
+      if (!u.used) return false;
+      this.flashRc(await bank.put((r, o) => this.rq(r, o), slot, { ...u, category: cat }, this.info));
+      await this.refreshSlot(slot);
+      return true;
     });
   }
   /* a library patch into slot */
@@ -428,7 +439,7 @@ export class Device {
       const r = parse[CMD.PROJECT](await this.rq(req.project(op, slot), { timeout: 4000, retries: 0 }));
       this.slotUsed[slot] = r.used;
       if (!op && r.used) await this.afterSoundChange();
-      if (this.info.chainRows) this.song = parse[CMD.SONG](await this.rq(req.song()));
+      if (this.info.chainRows) this.song = parse[CMD.SONG](await this.rq(req.song(0, [], !!this.info.songLanes)));
       this.emit("projects", this);
       this.emit("storage", this.storage());
       return r;
@@ -437,7 +448,8 @@ export class Device {
   /* SONG: action 1 set the rows ([{slot, repeat}], up to 16), 2 start, 3 stop; rc 2 busy, 3.. a slot that is empty */
   songOp(action, rows = []) {
     return this.op(async () => {
-      const r = parse[CMD.SONG](await this.rq(req.song(action, rows)));
+      /* (firmware with song sections, 57 01: ops 4..7 only; op 1 there would flatten the song) */
+      const r = parse[CMD.SONG](await this.rq(req.song(action, rows, !!this.info.songLanes)));
       if (r.rc) { const e = new Error(r.rc >= 3 ? `slot ${r.rc - 2} empty` : r.rc === 2 ? "busy" : "invalid"); e.code = "song"; e.rc = r.rc; throw e; }
       this.song = r;
       this.emit("song", r);
@@ -450,7 +462,7 @@ export class Device {
     const release = this.beginBusy();
     try {
       const before = JSON.stringify(this.song);
-      this.song = parse[CMD.SONG](await this.rq(req.song()));
+      this.song = parse[CMD.SONG](await this.rq(req.song(0, [], !!this.info.songLanes)));
       if (JSON.stringify(this.song) !== before) this.emit("song", this.song);
     } catch (e) { if (e.message !== "closed") this.emit("error", e); } finally { release(); }
   }
@@ -544,6 +556,9 @@ export class Device {
     this.stepEdit.set(k, this.now());
     const st = { ...s };
     if (!this.info.chance) delete st.chance;
+    /* (a nudge needs the ratchet before it, the ratchet the chance: the step's own when not given) */
+    if (this.info.nudge && st.nudge != null && st.ratchet == null) st.ratchet = (this.steps[k] && this.steps[k].ratchet) || 1;
+    if (st.ratchet != null && st.chance == null && this.info.chance) st.chance = (this.steps[k] && this.steps[k].chance) ?? 100;
     if (!this.info.ratchet || !this.info.chance) delete st.ratchet;
     else if (st.ratchet != null && st.chance == null) st.chance = 100;
     if (!this.info.nudge || st.ratchet == null) delete st.nudge;

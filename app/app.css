@@ -343,6 +343,11 @@ input.text.num { width: 6.5em; min-height: 32px; background: var(--surf); }
 .songrow .n { font-size: .75rem; font-weight: 600; color: var(--mid); text-align: center; }
 .songrow.at .n { color: var(--accent); }
 .songrow.at .pick b { color: var(--accent); }
+/* 1.4: a section, a slot per track (T1..T4) over its REPS */
+.songrow.sect { grid-template-columns: 20px minmax(0, 1fr) auto; }
+.songrow.sect .lanes { grid-column: 2; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.songrow.sect > .gauge { grid-column: 2; grid-row: 2; }
+.songrow.sect > .iconbtn { grid-column: 3; grid-row: 1; }
 .slot .acts { flex-wrap: wrap; }
 
 /* ---- 6-OP ---- */

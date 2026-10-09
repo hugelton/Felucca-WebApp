@@ -37,7 +37,7 @@ export function settingsScreen(root, ui) {
     const out = [];
     for (const id of ids) {
       const d = dev.gdesc[id];
-      if (!visible(d) || G_SKIP.has(d.label)) continue;
+      if (!visible(d) || G_SKIP.has(d.label) || (dev.info.pe0 >= 96 && id === 12)) continue;   /* (1.4: G_MIDI, nothing reads it) */
       const r = paramRow(d, dev.dump.g[id], (v) => { dev.setParam(1, id, v); ui.changed(1, id, v); }, { icon: (v) => paramIcon(d, v) });
       rows.set(id, r); out.push(r.el);
     }

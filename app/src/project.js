@@ -54,6 +54,7 @@ export function projectScreen(root, ui) {
     if (!dev.info.chainRows || !s) return null;
     const play = !!s.playing;
     const set = (rows) => run(() => dev.songOp(1, rows), (r) => { if (r) ui.say("SONG"); });
+    if (dev.info.songLanes) return sections(s, play, set);
     const rows = s.rows.map((r, i) => {
       const pick = el("select", { "aria-label": `SONG ${i + 1}`, disabled: play || busy },
         ...[0, 1, 2, 3].map((k) => el("option", { value: k, text: `${L(k)}${dev.slotUsed[k] ? "" : " · " + t("empty")}` })));
@@ -75,6 +76,36 @@ export function projectScreen(root, ui) {
           ic(play ? "control_stop_f" : "control_play_f"), play ? "STOP" : "PLAY"),
         el("button", { type: "button", class: "btn", disabled: play || busy || s.rows.length >= 16,
           onclick: () => set([...s.rows.map((x) => ({ ...x })), { slot: s.rows.length ? s.rows[s.rows.length - 1].slot : 0, repeat: 1 }]) }, ic("control_add"), "ROW")));
+    c.aside.textContent = play ? `${s.row + 1} / ${s.count} · ×${s.remaining}` : `${s.rows.length} / 16`;
+    return c;
+  }
+
+  /* 1.4 (INFO 57 01 4): sections, a slot per track (A..D or "-": silent) and the repeats, as GLO > SONG on the device */
+  function sections(s, play, set) {
+    const n = dev.info.songLanes, LB = (k) => (k >= 4 ? "-" : L(k)), copy = () => s.rows.map((x) => ({ slots: [...x.slots], repeat: x.repeat }));
+    const rows = s.rows.map((r, i) => {
+      const lanes = r.slots.slice(0, n).map((k, tr) => {
+        const pick = el("select", { "aria-label": `SONG ${i + 1} T${tr + 1}`, disabled: play || busy },
+          ...[0, 1, 2, 3, 4].map((v) => el("option", { value: v, text: v >= 4 ? "-" : `${L(v)}${dev.slotUsed[v] ? "" : " · " + t("empty")}` })));
+        pick.value = String(k);
+        pick.addEventListener("change", () => { const rs = copy(); rs[i].slots[tr] = +pick.value; set(rs); });
+        return el("label", { class: "pick sel lane" }, el("span", { class: "lbl", text: `T${tr + 1}` }), el("b", { text: LB(k) }), pick);
+      });
+      const reps = paramRow({ fmt: F.INT, min: 1, max: 16, def: 1, label: "REPS", unit: "" }, r.repeat,
+        (v, final) => { if (final) { const rs = copy(); rs[i].repeat = v; set(rs); } }, { label: `REPS ${i + 1}` });
+      return el("div", { class: "songrow sect" + (play && s.row === i ? " at" : "") },
+        el("span", { class: "n", text: String(i + 1) }), el("div", { class: "lanes" }, ...lanes), reps.el,
+        el("button", { type: "button", class: "iconbtn sm", "aria-label": `SONG ${i + 1} ×`, disabled: play || busy,
+          onclick: () => set(copy().filter((_, j) => j !== i)) }, ic("symbol_cross")));
+    });
+    const c = card("SONG", "control_arrow_loop",
+      el("div", { class: "rows" }, ...rows),
+      el("div", { class: "acts wrap" },
+        el("button", { type: "button", class: "btn primary", disabled: busy || (!play && !s.rows.length), onclick: () => run(() => dev.songOp(play ? 3 : 2)) },
+          ic(play ? "control_stop_f" : "control_play_f"), play ? "STOP" : "PLAY"),
+        el("button", { type: "button", class: "btn", disabled: play || busy || s.rows.length >= 16,   /* (ADD copies the last section) */
+          onclick: () => set([...copy(), s.rows.length ? { slots: [...s.rows[s.rows.length - 1].slots], repeat: s.rows[s.rows.length - 1].repeat } : { slots: [0, 0, 0, 0], repeat: 1 }]) },
+          ic("control_add"), "ADD")));
     c.aside.textContent = play ? `${s.row + 1} / ${s.count} · ×${s.remaining}` : `${s.rows.length} / 16`;
     return c;
   }

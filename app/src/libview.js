@@ -5,7 +5,7 @@
 // device's user bank. Lists are listboxes (arrows move, Enter loads or auditions); a library sound goes to a slot
 // and a slot to the library by a button or by dragging it across.
 
-import { devicePresetRows, engineLabel, engineOrder } from "./proto.js";
+import { CATEGORIES, devicePresetRows, engineLabel, engineOrder } from "./proto.js";
 import { $$, ENGINE_IC, el, ic } from "./dom.js";
 import { SORTS, fileSlug, slotName, today } from "./library.js";
 import { card, cells, help } from "./parts.js";
@@ -173,10 +173,17 @@ export function libraryScreen(root, ui, lib) {
       drop: ["text/x-felucca-lib", (id) => { bankSel = x.slot; const p = lib.get(id); if (p) libraryPut(id, x.slot); }],
       cells: [el("span", { class: "tag", text: slotName(x.slot) }),
         el("span", { class: "nm" }, x.used && ENGINE_IC[engineLabel(dev.info.engines, x.engine)] ? ic(ENGINE_IC[engineLabel(dev.info.engines, x.engine)]) : null, document.createTextNode(x.used ? x.name : "—")),
-        el("span", { class: "tag", text: x.used ? engineLabel(dev.info.engines, x.engine) : "" })],
+        el("span", { class: "tag", text: x.used ? [engineLabel(dev.info.engines, x.engine), CATEGORIES[x.category] || ""].filter(Boolean).join(" · ") : "" })],
     }));
+    /* 1.4: the selected slot's category (as the device's SAVE > CATEGORY) */
+    const catSel = dev.info.categories && s && s.used ? el("label", { class: "pick sel" }, el("span", { class: "lbl", text: "CATEGORY" }),
+      el("b", { text: CATEGORIES[s.category] || "—" }),
+      el("select", { "aria-label": "CATEGORY", disabled: busy,
+        onchange: (e) => run(() => dev.bankCategory(bankSel, +e.target.value), (ok) => { if (ok) ui.say(`${slotName(bankSel)} ${CATEGORIES[+e.target.value] || "—"}`); }) },
+      ...CATEGORIES.map((c, i) => el("option", { value: i, text: c || "—", selected: (s.category || 0) === i })))) : null;
     const c = card("USER BANK", "port_usb_c",
       listbox("USER BANK", rows, bankSel, { onSelect: (k) => { bankSel = k; draw(); }, onEnter: load }),
+      catSel,
       el("div", { class: "acts wrap" },
         btn("symbol_folder_open", t("load"), () => load(bankSel), !s || !s.used || busy, true),
         btn("symbol_download_as", t("store"), async () => {

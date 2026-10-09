@@ -145,6 +145,31 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   d.close();
 }
 {
+  /* 1.4: a step's nudge (after the ratchet), 128 motion records read with op 8, user preset categories; firmware
+     without the 1.2 tags (opt.v11): none of them sent or expected */
+  const m = proto.makeMockDevice();
+  const d = new Device(m.access);
+  await d.open();
+  const w = await d.writeStep(4, { n: 1, notes: [60, 0, 0, 0], time: 0, flags: 0, vel: 96, hit: 0, acc: 0, nudge: -3 });
+  ok(w && w.nudge === -3 && m.state.step[4].nudge === -3 && w.ratchet === 1 && w.chance === 100, "1.4: a nudge written (with the chance and ratchet before it), read back");
+  for (let k = 0; k < 70; k++) m.state.tracks[0].motion.events.push({ step: k % 64, param: 9 + (k >> 6), value: k });
+  await d.reloadSteps();
+  ok(d.info.motionCap === 128 && d.motion.count === 70 && d.motion.events.length === 70 && d.motion.max === 128, "1.4: 70 records of a track read with op 8 (not just 64)");
+  m.state.tracks[0].motion.events = [];
+  const pt = { name: "CAT", engine: 0, p: m.state.p.slice(), pattern: [], category: 2 };
+  await d.bankPut(20, pt);
+  ok(m.state.bank[20].category === 2 && d.bank.slots[20].category === 2, "1.4: a user preset's category written (UP_PUT) and listed (UP_LIST)");
+  ok((await d.bankCategory(20, 5)) && m.state.bank[20].category === 5 && (await d.bankGet(20)).category === 5, "1.4: a slot's category changed, read back (UP_GET)");
+  d.close();
+  const om = proto.makeMockDevice({ v11: true }), o = new Device(om.access);
+  await o.open();
+  const w2 = await o.writeStep(4, { n: 1, notes: [60, 0, 0, 0], time: 0, flags: 0, vel: 96, hit: 0, acc: 0, nudge: -3, ratchet: 1, chance: 100 });
+  await o.bankPut(20, { ...pt, category: 2 });
+  ok(!o.info.motionCap && !o.info.nudge && !o.info.songLanes && !o.info.categories && w2 && w2.nudge === 0 && om.state.bank[20] && !om.state.bank[20].category,
+    "1.4 editor on 1.1.5 firmware (no 41 / 54 / 57): no nudge, no category sent, motion and song as before");
+  o.close();
+}
+{
   /* 1.1 parameter locks: read with their kind (op 7); a lock's value edited stays a lock (op 5, not 3); firmware
      without locks: the plain query */
   const m = proto.makeMockDevice();
@@ -394,17 +419,28 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   ok(sv && sv.used === 1 && d.slotUsed[empty] === 1, "project: save into an empty slot (PROJECT op 1)");
   const ld = await d.project(0, empty);
   ok(ld && ld.used === 1, "project: load it (op 0), the sound read again");
-  const r = await d.songOp(1, [{ slot: empty, repeat: 2 }]);
-  ok(r && r.rows.length === 1 && r.rows[0].repeat === 2 && d.song === r, "project: the song chain's rows (SONG op 1); d.song is the reply");
+  /* 1.4 (INFO 57 01 4): sections, a slot per track (4 = "-"), sent with ops 4..7 (op 1 would flatten the song) */
+  const r = await d.songOp(1, [{ slots: [empty, 4, empty, 4], repeat: 2 }]);
+  ok(d.info.songLanes === 4 && r && r.op === 5 && r.rows.length === 1 && r.rows[0].slots.join() === [empty, 4, empty, 4].join() && r.rows[0].repeat === 2 && d.song === r,
+    "project: song sections (SONG op 5: a slot per track, \"-\" silent); d.song is the reply");
   ok((await d.songOp(2)) && d.song.playing, "project: song PLAY");
   ok((await d.songOp(3)) && !d.song.playing, "project: song STOP");
   const errs = [];
   d.on("error", (e) => errs.push(e));
   const unused = d.slotUsed.indexOf(0);
   if (unused >= 0) {
-    ok(await d.songOp(1, [{ slot: unused, repeat: 1 }]), "project: a row of an empty project can be set (src/editor.c: checked at start)");
+    ok(await d.songOp(1, [{ slots: [4, unused, 4, 4], repeat: 1 }]), "project: a section with an empty project can be set (checked at start)");
     await d.songOp(2);
     ok(errs.some((e) => e.code === "song" && e.rc === 3 + unused) && !d.song.playing, "project: .. PLAY refuses it (rc 3 + the slot)");
+  }
+  {
+    /* firmware before 1.4 (no 57 01): the song's rows, a project each (op 1) */
+    const o = new Device(proto.makeMockDevice({ auto: false, noLanes: true }).access);
+    await o.open();
+    const k = o.slotUsed.indexOf(1);
+    const r0 = await o.songOp(1, [{ slot: k, repeat: 2 }]);
+    ok(!o.info.songLanes && r0 && r0.op === 1 && r0.rows[0].slot === k && r0.rows[0].repeat === 2, "project: firmware before 1.4: the song's rows (SONG op 1)");
+    o.close();
   }
   /* the full backup: saved, restored, saved again: the same objects */
   const file = await d.backupSave();
@@ -724,7 +760,7 @@ else console.log("icons: from the firmware's icons.c (no FELUCCA_FIRMWARE)      
   const { MOD_SRC, MOD_DST } = await import("./app/src/paramicons.js");
   const dst = D({ label: "DST1", id: 50, max: 13, names: ["OFF", "PIT", "FLT", "SHP", "LVL", "PAN", "DRV", "CHO", "DLY", "REV", "RATE", "VIB", "E1", "E2"] });
   const cut = { desc: D({ label: "CUT", id: 61, fmt: 0, max: 127 }), value: 64 };
-  ok(MOD_SRC.length === 9 && MOD_DST.length === 12 && paramIcon(D({ label: "SRC1", id: 49, max: 8 }), 1) === MOD_SRC[1]
+  ok(MOD_SRC.length >= 9 && MOD_DST.length === 12 && paramIcon(D({ label: "SRC1", id: 49, max: 8 }), 1) === MOD_SRC[1]
     && paramIcon(dst, 2) === MOD_DST[2] && paramIcon(dst, 12, (k) => (k === 0 ? cut : null)) === BY_LABEL.CUT
     && paramIcon(D({ label: "AMT1", id: 51, fmt: 0 }), 10) === MOD_SRC[0],
     "icons: the MOD matrix by its value (a destination E1..E8: that engine parameter's own)");
