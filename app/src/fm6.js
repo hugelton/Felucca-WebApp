@@ -38,6 +38,9 @@ function eg(box, rates, levels) {
 
 export function fm6Screen(root, ui) {
   let dev = null, v = FM6.init(), imported = [], picked = -1, op = 1, live = false, timer = null, busy = false, factorySel = 0;
+  /* the track the patch shown was read from, while it is not edited here (1.4: the device edits operators too, so it is
+     read again when this page opens); fresh: nothing loaded yet */
+  let fromTrack = null, fresh = true;
   const rows = new Map();                           /* byte -> part (values change in place) */
   let egOp = null, egPitch = null, freqOut = null, algOut = null;
   const file = el("input", { type: "file", accept: ".syx,.SYX,.bin,application/octet-stream", hidden: true });
@@ -47,6 +50,7 @@ export function fm6Screen(root, ui) {
   const send = async (quiet) => { if (!dev) return; const ok = await dev.fm6Send(track(), FM6.pack(v)); if (ok && !quiet) ui.say(`${tf("didSend", `${t("track")} ${track() + 1}`)}: ${FM6.name(v)}`); };
   function set(i, val) {
     v[i] = Math.max(0, Math.min(FM6.max(i), Math.round(val)));
+    if (!live) fromTrack = null;
     if (live && dev) { clearTimeout(timer); timer = setTimeout(() => send(true), 150); }
     redraw();
   }
@@ -72,8 +76,8 @@ export function fm6Screen(root, ui) {
     if (opCells) drawOpCells();
   }
   /* loaded from somewhere (a file, the track, a factory patch, INIT): every row again */
-  function load(nv, from) {
-    v = Uint8Array.from(nv);
+  function load(nv, from, tr = null) {
+    v = Uint8Array.from(nv); fromTrack = tr; fresh = false;
     if (from) ui.say(`${from}: ${FM6.name(v)}`);
     draw();
     if (live && dev) send(true);
@@ -111,7 +115,7 @@ export function fm6Screen(root, ui) {
         el("span", { class: "tag", text: String(k + 1).padStart(2, "0") }), el("span", { text: x.name }), el("span")))) : null;
     const c = card("SOURCE", "symbol_folder_open",
       el("div", { class: "acts wrap" },
-        el("button", { type: "button", class: "btn", disabled: busy || !dev, onclick: () => run(async () => { const pk = await dev.fm6Read(track()); if (pk) load(FM6.unpack(pk), `${t("track")} ${track() + 1}`); }) }, ic("symbol_download"), t("fromTrack")),
+        el("button", { type: "button", class: "btn", disabled: busy || !dev, onclick: () => run(async () => { const pk = await dev.fm6Read(track()); if (pk) load(FM6.unpack(pk), `${t("track")} ${track() + 1}`, track()); }) }, ic("symbol_download"), t("fromTrack")),
         el("button", { type: "button", class: "btn primary", disabled: busy || !dev, onclick: () => send(false) }, ic("symbol_upload"), t("toTrack")),
         el("button", { type: "button", class: "chip", "aria-pressed": String(live), onclick: () => { live = !live; if (live) send(true); draw(); } }, "LIVE")),
       el("div", { class: "acts wrap" },
@@ -184,7 +188,13 @@ export function fm6Screen(root, ui) {
     redraw();
   }
   return {
-    show(device) { dev = device && device.loaded ? device : null; draw(); },
+    show(device) {
+      dev = device && device.loaded ? device : null;
+      draw();
+      /* the track's own patch read (again) when nothing else is shown, or the one shown came from it unedited */
+      if (dev && dev.fm6Ok() && !busy && (fresh || fromTrack === track()))
+        dev.fm6Read(track()).then((pk) => { if (pk && dev && (fresh || fromTrack === track())) load(FM6.unpack(pk), null, track()); });
+    },
     leave() { live = false; clearTimeout(timer); },
     get patch() { return v; },
   };
