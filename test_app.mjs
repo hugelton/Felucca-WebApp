@@ -145,6 +145,23 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   d.close();
 }
 {
+  /* 1.4.1: FM6's voice bank (INFO 56 01 32): a 32-voice .syx sent (BEGIN, 32 WRITEs, END), listed; a voice played on
+     the track (SLOT 9 + k); firmware without it (opt.noVbank): nothing offered */
+  const m = proto.makeMockDevice(), d = new Device(m.access);
+  await d.open();
+  const voices = Array.from({ length: 32 }, (_, k) => { const v = proto.FM6.init(); proto.FM6.setName(v, `VOICE ${k + 1}`); return { v, name: `VOICE ${k + 1}` }; });
+  const steps = [];
+  const rc = await d.fm6BankSend(proto.fm6Bank.fromVoices(voices), proto.fm6Bank.nameOf("my bank.syx"), (k) => steps.push(k));
+  ok(d.info.fm6Bank === 32 && rc === 0 && steps.length === 32 && d.fm6bank && d.fm6bank.valid && d.fm6bank.name === "MY BANK"
+     && d.fm6bank.voices.filter((x) => x.used).length === 32 && d.fm6bank.voices[4].name.trim() === "VOICE 5",
+    "FM6 bank: a 32-voice .syx sent (progress per voice), the device lists it (name, 32 voices)");
+  d.close();
+  const o = new Device(proto.makeMockDevice({ noVbank: true }).access);
+  await o.open();
+  ok(!o.info.fm6Bank && o.fm6bank == null, "FM6 bank: firmware before 1.4.1: not offered, not read");
+  o.close();
+}
+{
   /* PIANO HD (1.4): the files beside the editor written to a user slot as they are, read back as the device lists it */
   const { createHash } = await import("node:crypto");
   const hdr = readFileSync(join(APP, "samples/PIANO_HD.hdr")), data = readFileSync(join(APP, "samples/PIANO_HD.bin"));

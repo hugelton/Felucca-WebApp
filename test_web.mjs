@@ -47,7 +47,8 @@ const E = vm.runInNewContext(proto + `
    FM4, fromDigital, fromPerc, DRUM_KIT_E,
    MENU: typeof MENU === "undefined" ? null : MENU, MENU_TABS: typeof MENU_TABS === "undefined" ? null : MENU_TABS,
    readDeviceMenu: typeof readDeviceMenu === "undefined" ? null : readDeviceMenu,
-   parseMotionAll: typeof parseMotionAll === "undefined" ? null : parseMotionAll })`,
+   parseMotionAll: typeof parseMotionAll === "undefined" ? null : parseMotionAll,
+   fm6Bank: typeof fm6Bank === "undefined" ? null : fm6Bank, crc32: typeof crc32 === "undefined" ? null : crc32 })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 async function editorMock() {
@@ -1178,6 +1179,82 @@ async function editorFm6() {
   l2.close(); old.stop();
 }
 
+/* 1.4.1: FM6's voice bank (cmds 74..77; the new editor's fm6Bank) against the mock: INFO 56 01 32, a 32-voice .syx
+   sent whole (BEGIN, 32 WRITEs, END with the CRC), LIST's names, SLOT B1..B32 loading the exact records, empty bank
+   slots refused, a wrong CRC and a WRITE without BEGIN changing nothing, a new bank leaving a track's voice its own */
+async function editorFm6Bank() {
+  if (!E.fm6Bank) { console.log("FM6 bank: (editor.html has no voice bank sender)".padEnd(64) + " skip"); return; }
+  const F6 = E.FM6, C = E.CMD;
+  const m = E.makeMockDevice({ auto: false });
+  const link = new E.Link((d) => [...m.access.outputs.values()][0].send(d), { timeout: 200 });
+  [...m.access.inputs.values()][0].onmidimessage = (e) => link.receive(e.data);
+  const rq = (x, o) => link.request(x, o);
+  const info = E.parse[C.INFO](await rq(E.req.info()));
+  ok(info.fm6Bank === 32 && info.songLanes === 4 && info.fm6.caps === 3, "FM6 bank: INFO 56 01 32 after the SONG lanes tag");
+  let list = await E.fm6Bank.list(rq);
+  ok(list.n === 32 && !list.valid && list.name === "" && list.voices.every((v) => !v.used), "FM6 bank: LIST of an empty device: no bank");
+  /* a 32-voice file: the factory patches renamed VOICE 01..32 (the import path: parseSysex, then the packed records) */
+  const voices = Array.from({ length: 32 }, (_, k) => F6.setName(F6.factory(k % 8), `VOICE ${String(k + 1).padStart(2, "0")}`));
+  const file = F6.bankSysex(voices), parsed = F6.parseSysex(file), packed = E.fm6Bank.fromVoices(parsed.voices);
+  ok(parsed.voices.length === 32 && packed.length === 32 && packed.every((pk, k) => eq(pk, F6.pack(voices[k]))) &&
+     E.fm6Bank.nameOf("my fm bank.syx") === "MY FM BANK" && E.fm6Bank.nameOf("äbc.SYX") === " BC".trim(),
+    "FM6 bank: a 32-voice .syx -> 32 packed records; the bank's name from the file name");
+  let rc = await E.fm6Bank.send(rq, packed, E.fm6Bank.nameOf("my fm bank.syx"));
+  list = await E.fm6Bank.list(rq);
+  ok(rc === 0 && list.valid && list.name === "MY FM BANK" && list.voices.every((v, k) => v.used && v.name === `VOICE ${String(k + 1).padStart(2, "0")}`),
+    "FM6 bank: sent whole (rc 0); LIST: its name, 32 voices and their names");
+  const eng = info.engines.indexOf("FM6"), slotId = info.pe0 + 7;
+  await rq(E.req.set(1, 20, eng));
+  let all = true;
+  for (let k = 0; k < 32; k++) {
+    await rq(E.req.set(0, slotId, 9 + k));
+    const g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
+    const sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value;
+    all &&= eq(g.packed, packed[k]) && sv === 9 + k;
+  }
+  ok(all, "FM6 bank: SLOT 9..40 (B1..B32) loads each voice's exact record into the track");
+  /* a bank with voices 1, 6 and 32 only (bank slots without a voice are refused: SLOT back) */
+  const some = packed.map((pk, k) => ([0, 5, 31].includes(k) ? F6.pack(F6.setName(F6.unpack(pk), `ONLY ${k + 1}`)) : null));
+  await rq(E.req.set(0, slotId, 9 + 4));                                   /* B5 of the full bank */
+  rc = await E.fm6Bank.send(rq, some, "SOME");
+  let sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value, g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
+  ok(rc === 0 && sv === 8 && eq(g.packed, packed[4]), "FM6 bank: a new bank: the track on B5 keeps that voice as its own (SLOT OWN)");
+  await rq(E.req.set(0, slotId, 9 + 1));                                   /* B2: none there */
+  sv = E.parse[C.GET](await rq(E.req.get(0, slotId))).value;
+  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
+  ok(sv === 8 && eq(g.packed, packed[4]), "FM6 bank: an empty bank slot (B2) is refused: SLOT back, the patch unchanged");
+  await rq(E.req.set(0, slotId, 9 + 31));
+  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
+  list = await E.fm6Bank.list(rq);
+  ok(eq(g.packed, some[31]) && list.voices.filter((v) => v.used).map((v) => v.name).join() === "ONLY 1,ONLY 6,ONLY 32",
+    "FM6 bank: B32 loads; LIST: the three voices, the rest empty");
+  /* a wrong CRC: nothing changes */
+  E.parse[C.FM6B_BEGIN](await rq(E.req.fm6bBegin()));
+  const w = E.parse[C.FM6B_WRITE](await rq(E.req.fm6bWrite(0, packed[7])));
+  const end = E.parse[C.FM6B_END](await rq(E.req.fm6bEnd("BAD", E.crc32(Uint8Array.from(packed[7])) ^ 1)));
+  list = await E.fm6Bank.list(rq);
+  ok(w.rc === 0 && end.rc === 2 && end.voices === 3 && list.name === "SOME", "FM6 bank: a wrong CRC (rc 2): the bank stays");
+  const w2 = E.parse[C.FM6B_WRITE](await rq(E.req.fm6bWrite(0, packed[7])));
+  const e2 = E.parse[C.FM6B_END](await rq(E.req.fm6bEnd("X", 0)));
+  E.parse[C.FM6B_BEGIN](await rq(E.req.fm6bBegin()));
+  E.parse[C.FM6B_WRITE](await rq(E.req.fm6bWrite(3, packed[3])));
+  const w3 = E.parse[C.FM6B_WRITE](await rq(E.req.fm6bWrite(3, packed[3])));
+  const w4 = E.parse[C.FM6B_WRITE](await rq(E.req.fm6bWrite(32, packed[3])));
+  const w5 = E.parse[C.FM6B_WRITE](await rq([C.FM6B_WRITE, [4, 1, 2, 3]]));
+  ok(w2.rc === 5 && e2.rc === 5 && w3.rc === 1 && w4.rc === 1 && w5.rc === 1,
+    "FM6 bank: WRITE / END without BEGIN: rc 5; a voice twice, index 32, a short record: rc 1");
+  rc = await E.fm6Bank.send(rq, new Array(32).fill(null), "");
+  list = await E.fm6Bank.list(rq);
+  ok(rc === 0 && list.valid && list.voices.every((v) => !v.used), "FM6 bank: an empty bank (no WRITE, CRC of nothing) clears it");
+  link.close(); m.stop();
+  const old = E.makeMockDevice({ auto: false, noVbank: true });
+  const l2 = new E.Link((d) => [...old.access.outputs.values()][0].send(d), { timeout: 100 });
+  [...old.access.inputs.values()][0].onmidimessage = (ev) => l2.receive(ev.data);
+  const i2 = E.parse[C.INFO](await l2.request(E.req.info()));
+  ok(i2.fm6Bank === 0 && i2.songLanes === 4, "FM6 bank: firmware before 1.4.1: no 56 tag (the editor offers no bank sending)");
+  l2.close(); old.stop();
+}
+
 /* the variants real 6-operator voice files have (parseSysex), every one built here byte by byte */
 function fm6Tolerant(F6, voices, bank, one) {
   const U = (...xs) => Uint8Array.from(xs.flatMap((x) => Array.from(x)));
@@ -1610,6 +1687,7 @@ await editorTrackParam();
 await editorSong();
 await editorSessions();
 await editorFm6();
+await editorFm6Bank();
 fm6TabNoBank();
 await editorFm4();
 editorTabs();

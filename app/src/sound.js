@@ -31,11 +31,20 @@ export function soundScreen(root, ui) {
   } : null);
 
   const engineAt = (k) => { const id = dev.info.pe0 + k, e = dev.pdesc[id]; return visible(e) ? { desc: e, value: dev.dump.p[id] } : null; };
+  /* FM6's SLOT as the device shows it: F1..F8, OWN, (1.4.1) B1..B32 with the bank's voice names */
+  const fm6Slot = (s, id) => (!s && dev.engineName() === "FM6" && id === dev.info.pe0 + 7 && dev.pdesc[id] && dev.pdesc[id].label === "SLOT" ? (x) => {
+    const v = +x, b = dev.fm6bank, nf = dev.info.fm6 ? dev.info.fm6.factory || 8 : 8;
+    if (!Number.isInteger(v)) return x;
+    if (v < nf) return `F${v + 1}`;
+    if (v === nf) return "OWN";
+    const k = v - nf - 1, voice = b && b.voices && b.voices[k];
+    return `B${k + 1}` + (voice && voice.used ? ` ${voice.name}` : "");
+  } : null);
   function row(s, id) {
     const d = desc(s, id);
     if (!visible(d) || (s === 1 && G_SKIP.has(d.label))) return null;
     const r = paramRow(d, value(s, id), (v) => { dev.setParam(s, id, v); redraw(s, id); ui.changed(s, id, v); },
-      { icon: (v) => paramIcon(d, v, engineAt), rename: modDst(d) });
+      { icon: (v) => paramIcon(d, v, engineAt), rename: modDst(d) || fm6Slot(s, id) });
     rows.set(key(s, id), r);
     return r.el;
   }

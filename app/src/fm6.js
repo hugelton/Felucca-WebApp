@@ -5,7 +5,7 @@
 // .syx files (one voice or banks), pick a voice, edit it, send it to the selected track (or LIVE: while editing);
 // read the track's patch or a factory one (F1..F8); export a voice. The track keeps what it was sent (SLOT OWN).
 
-import { F, FM6, noteName } from "./proto.js";
+import { F, FM6, fm6Bank, noteName } from "./proto.js";
 import { el, ic } from "./dom.js";
 import { card, cells, help, paramRow } from "./parts.js";
 import { t, tf } from "./text.js";
@@ -40,7 +40,7 @@ export function fm6Screen(root, ui) {
   let dev = null, v = FM6.init(), imported = [], picked = -1, op = 1, live = false, timer = null, busy = false, factorySel = 0;
   /* the track the patch shown was read from, while it is not edited here (1.4: the device edits operators too, so it is
      read again when this page opens); fresh: nothing loaded yet */
-  let fromTrack = null, fresh = true;
+  let fromTrack = null, fresh = true, importedName = "";
   const rows = new Map();                           /* byte -> part (values change in place) */
   let egOp = null, egPitch = null, freqOut = null, algOut = null;
   const file = el("input", { type: "file", accept: ".syx,.SYX,.bin,application/octet-stream", hidden: true });
@@ -92,12 +92,42 @@ export function fm6Screen(root, ui) {
       ui.say(`${f.name}: ${why}`, "warn");
       return;
     }
-    imported = r.voices; picked = r.voices.length === 1 ? 0 : -1;
+    imported = r.voices; picked = r.voices.length === 1 ? 0 : -1; importedName = fm6Bank.nameOf(f.name) || "BANK";
     const notes = [r.badSum && t("fm6BadSum"), r.short && t("fm6Short"), r.skipped && tf("skippedN", r.skipped)].filter(Boolean);
     ui.say(`${f.name}: ${r.voices.length}${notes.length ? " (" + notes.join(", ") + ")" : ""}`, notes.length ? "warn" : "info");
     if (picked === 0) load(r.voices[0].v); else draw();
   }
   async function run(fn) { if (busy || !dev) return; busy = true; draw(); try { await fn(); } finally { busy = false; draw(); } }
+
+  /* 1.4.1 (INFO 56 01 32): the imported voices (the first 32) as the FM-1's voice bank, B1..B32 on SLOT; the device
+     keeps its previous bank unless all of it arrived (rc 0) */
+  async function sendBank() {
+    const n = Math.min(32, imported.length);
+    if (!(await ui.confirm(`${tf("bankQ", `${importedName} (${n})`)}`))) return;
+    await run(async () => {
+      const rc = await dev.fm6BankSend(fm6Bank.fromVoices(imported), importedName, (k, total) => ui.progress(`BANK ${k} / ${total}`));
+      if (rc == null) return;
+      if (rc) ui.say(`${t("bankKept")} (${t(["", "bankRc1", "bankRc2", "bankRc3", "bankRc4", "bankRc5"][rc] || "bankRc1")})`, "warn");
+      else ui.say(tf("bankSent", dev.fm6bank ? dev.fm6bank.name : importedName));
+    });
+  }
+  /* a bank voice on the selected track: SLOT 9 + k (the device loads it and refuses an empty one), then read back */
+  async function playBank(k) {
+    const id = dev.info.pe0 + 7, nf = dev.info.fm6 ? dev.info.fm6.factory || 8 : 8;
+    await dev.setParam(0, id, nf + 1 + k);
+    await run(async () => { await new Promise((r) => setTimeout(r, 250)); const pk = await dev.fm6Read(track()); if (pk) load(FM6.unpack(pk), `B${k + 1}`, track()); });
+  }
+  function bankCard() {
+    const b = dev && dev.info.fm6Bank ? dev.fm6bank : null;
+    if (!b || !b.valid) return null;
+    const list = el("ul", { class: "list voices", role: "list", "aria-label": "BANK" },
+      ...b.voices.map((x, k) => el("li", { class: "item" + (x.used ? "" : " dim") },
+        el("span", { class: "tag", text: `B${k + 1}` }), el("span", { text: x.used ? x.name : "—" }),
+        x.used ? el("button", { type: "button", class: "iconbtn sm", "aria-label": `B${k + 1} → ${t("track")} ${track() + 1}`, disabled: busy, onclick: () => playBank(k) }, ic("control_play_f")) : el("span"))));
+    const c = card("BANK", "symbol_books", el("div", { class: "slothead" }, el("b", { text: b.name || "—" })), list);
+    c.aside.textContent = `${b.voices.filter((x) => x.used).length} / ${b.n}`;
+    return c;
+  }
 
   /* ---- SOURCE: where the patch comes from and goes ---- */
   function source() {
@@ -121,7 +151,8 @@ export function fm6Screen(root, ui) {
       el("div", { class: "acts wrap" },
         el("button", { type: "button", class: "btn", onclick: () => file.click() }, ic("symbol_folder_open"), ".SYX"),
         el("button", { type: "button", class: "btn", onclick: () => ui.download(`${(FM6.name(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "voice")}.syx`, new Uint8Array(FM6.singleSysex(v)), "application/octet-stream") }, ic("symbol_download_as"), t("export")),
-        el("button", { type: "button", class: "btn", onclick: () => { picked = -1; load(FM6.init(), "INIT"); } }, ic("control_arrow_randomize"), "INIT")),
+        el("button", { type: "button", class: "btn", onclick: () => { picked = -1; load(FM6.init(), "INIT"); } }, ic("control_arrow_randomize"), "INIT"),
+        dev && dev.info.fm6Bank && imported.length > 1 ? el("button", { type: "button", class: "btn primary", disabled: busy, onclick: sendBank }, ic("symbol_upload"), "SEND BANK") : null),
       el("div", { class: "addrow" }, el("label", { class: "pick sel" }, el("span", { class: "lbl", text: "FACTORY" }), el("b", { text: fact[factorySel] }), pick),
         el("button", { type: "button", class: "btn", disabled: busy, onclick: () => (dev ? run(async () => { const pk = await dev.fm6Factory(factorySel); if (pk) { picked = -1; load(FM6.unpack(pk), `F${factorySel + 1}`); } })
           : (picked = -1, load(FM6.factory(factorySel), `F${factorySel + 1}`))) }, t("load"))),
@@ -184,7 +215,7 @@ export function fm6Screen(root, ui) {
   function draw() {
     rows.clear();
     if (!dev || !dev.fm6Ok()) { root.replaceChildren(); return; }
-    root.replaceChildren(el("div", { class: "grid" }, source(), voice(), operators()));
+    root.replaceChildren(el("div", { class: "grid" }, ...[source(), bankCard(), voice(), operators()].filter(Boolean)));
     redraw();
   }
   return {

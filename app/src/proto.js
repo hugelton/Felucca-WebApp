@@ -37,7 +37,8 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   TRACK_PARAM: 31, TRACK_CHANGED: 32, SONG: 33,
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
-  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, MENU_DESC: 72, MENU_SET: 73 };
+  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, MENU_DESC: 72, MENU_SET: 73,
+  FM6B_BEGIN: 74, FM6B_WRITE: 75, FM6B_END: 76, FM6B_LIST: 77 };
 /* frames the device sends on its own (while WATCH is on); never replies */
 const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
 /* user preset bank: name 1..12 printable ASCII, a 16-step pattern of (note, flags 1 acc 2 slide 4 tie) */
@@ -150,17 +151,20 @@ const parse = {
       if (o.ratchet && trailer[r] === 0x4C && trailer[r + 1] === 1) o.locks = trailer[r + 2];   /* parameter locks (1.1) */
       /* the tagged blocks from 53 01 on, walked by their known lengths (an unknown tag ends the walk): 1.2's 57 01 n =
          SONG sections with a slot per track (n lanes; SONG ops 4..7) */
-      const LEN = { 0x53: 1, 0x50: 1, 0x4E: 1, 0x52: 1, 0x4C: 1, 0x41: 2, 0x54: 1, 0x57: 1 };
+      /* (1.4.1's 56 01 n: FM6's voice bank, n voices: cmds 74..77, SLOT 9.. = B1..Bn) */
+      const LEN = { 0x53: 1, 0x50: 1, 0x4E: 1, 0x52: 1, 0x4C: 1, 0x41: 2, 0x54: 1, 0x57: 1, 0x56: 1 };
       for (let q = p + 4; q + 2 < trailer.length && trailer[q + 1] === 1 && LEN[trailer[q]]; q += 2 + LEN[trailer[q]]) {
         if (trailer[q] === 0x57) o.songLanes = trailer[q + 2];
         if (trailer[q] === 0x41 && q + 3 < trailer.length) o.motionCap = trailer[q + 2] | trailer[q + 3] << 7;   /* 1.2: 128 */
         if (trailer[q] === 0x54) o.nudge = trailer[q + 2];                                                      /* 1.2: 16 */
+        if (trailer[q] === 0x56) o.fm6Bank = trailer[q + 2];                                                    /* 1.4.1: 32 */
       }
     }
     o.menuCount = o.menuCount || 0;
     o.songLanes = o.songLanes || 0;
     o.motionCap = o.motionCap || 0;               /* 0: MOTION ops 0..7 only (64 records); else op 8 lists them all */
     o.nudge = o.nudge || 0;                       /* 0: no nudge byte in steps */
+    o.fm6Bank = o.fm6Bank || 0;                   /* FM6's voice bank (1.4.1): 0 none */
     o.categories = o.motionCap > 0;               /* user preset categories (1.2 / 1.4, with the same tags) */
     return o;
   },
@@ -301,6 +305,16 @@ const parse = {
     return o;
   },
   [CMD.FM6_ERASE](a) { return { index: a[0], rc: a[1] }; },
+  /* FM6's voice bank (1.4.1, info.fm6Bank): rc 0 ok, 1 arguments, 2 the CRC (END: nothing changed), 3 playback did not
+     stop, 4 flash, 5 no transfer (no BEGIN, or the device's autosave took its sector: start again) */
+  [CMD.FM6B_BEGIN](a) { return { rc: a[0] }; },
+  [CMD.FM6B_WRITE](a) { return { index: a[0], rc: a[1] }; },
+  [CMD.FM6B_END](a) { return { rc: a[0], voices: a[1] }; },
+  [CMD.FM6B_LIST](a) {
+    const r = new Reader(a), o = { n: r.b(), valid: !!r.b(), name: r.s(), voices: [] };
+    for (let i = 0; i < o.n; i++) { const used = r.b(); o.voices.push({ used: !!used, name: r.s() }); }
+    return o;
+  },
   /* MENU settings: kind 0 an enum (one name per value min..max), 1 a number with a unit; id 127: no item at index.
      1.0.5: then the item's tab on the device (index, name; tab -1 / "" from older firmware); a kind this editor does
      not know: no tab read (its bytes are not known) */
@@ -396,6 +410,14 @@ const req = {
   fm6Put: (target, i, packed) => [CMD.FM6_PUT, [target & 0x7F, i & 0x7F, ...packed.map((x) => x & 0x7F)]],
   fm6List: () => [CMD.FM6_LIST, []],
   fm6Erase: (i) => [CMD.FM6_ERASE, [i & 0x7F]],
+  /* FM6's voice bank (info.fm6Bank): BEGIN, a WRITE per voice (index 0..31, the packed record), END with the bank's
+     name (10 ASCII bytes, space-padded) and the CRC-32 of the written records in index order (5 x 7 bits) */
+  fm6bBegin: () => [CMD.FM6B_BEGIN, []],
+  fm6bWrite: (i, packed) => [CMD.FM6B_WRITE, [i & 0x7F, ...packed.map((x) => x & 0x7F)]],
+  fm6bEnd: (name, crc) => [CMD.FM6B_END, [...Array.from({ length: 10 }, (_, i) => {
+    const c = String(name || "").toUpperCase().charCodeAt(i);
+    return c >= 32 && c <= 126 ? c : 32; }), ...[0, 7, 14, 21, 28].map((k) => (crc >>> k) & 0x7F)]],
+  fm6bList: () => [CMD.FM6B_LIST, []],
   /* MENU settings (firmware with info.menuCount) */
   menuDesc: (i) => [CMD.MENU_DESC, [i & 0x7F]],
   menuSet: (id, v) => [CMD.MENU_SET, [id & 0x7F, ...v14enc(v)]],
@@ -417,6 +439,7 @@ function replyMatches(cmd, args, a) {
     case CMD.SONG: return a[0] === args[0];
     case CMD.FM6_GET: case CMD.FM6_PUT: return a[0] === args[0] && a[1] === args[1];
     case CMD.FM6_ERASE: return a[0] === args[0];
+    case CMD.FM6B_WRITE: return a[0] === args[0];
     case CMD.MENU_DESC: return a[0] === args[0];
     case CMD.MENU_SET: return a[1] === args[0];
     case CMD.PROJECT: return a[0] === args[0] && a[1] === args[1];
@@ -1222,6 +1245,31 @@ const FM6 = (() => {
     TARGET: { TRACK: 0, BANK: 1, FACTORY: 2, USER: 3 } };
 })();
 
+/* FM6's voice bank (1.4.1, EDITOR_PROTOCOL.md "FM6 voice bank"; firmware with info.fm6Bank): 32 voices sent whole,
+   picked on the device with SLOT B1..B32. A bank file's voices (FM6.parseSysex) go as the packed records the single
+   voices use (FM6.pack of each, every value in range) */
+const fm6Bank = {
+  /* parseSysex's voices (the first 32) -> the 32 packed records to send (null: an empty bank slot) */
+  fromVoices: (voices) => Array.from({ length: 32 }, (_, k) => (voices[k] ? FM6.pack(voices[k].v || voices[k]) : null)),
+  /* a file name -> the bank's name (10 characters, what the device shows) */
+  nameOf: (file) => String(file || "").replace(/\.[^.]*$/, "").toUpperCase().replace(/[^\x20-\x7E]/g, " ").slice(0, 10).trim(),
+  /* packed: 32 records (null = none); name -> rc (0: the device holds this bank now; anything else: the bank it had) */
+  async send(rq, packed, name, onProgress) {
+    let rc = parse[CMD.FM6B_BEGIN](await rq(req.fm6bBegin(), FLASH_OPT)).rc;
+    const sent = [];
+    for (let k = 0; !rc && k < 32; k++) {
+      if (!packed[k]) continue;
+      const pk = Array.from(packed[k], (x) => x & 0x7F);
+      rc = parse[CMD.FM6B_WRITE](await rq(req.fm6bWrite(k, pk), FLASH_OPT)).rc;
+      sent.push(...pk);
+      if (onProgress) onProgress(k + 1, 32);
+    }
+    return rc || parse[CMD.FM6B_END](await rq(req.fm6bEnd(name, crc32(Uint8Array.from(sent))), FLASH_OPT)).rc;
+  },
+  /* -> {n, valid, name, voices: [{used, name}]} */
+  list: async (rq) => parse[CMD.FM6B_LIST](await rq(req.fm6bList())),
+};
+
 /* ----------------------------------------------------------------- DIGITAL --- */
 /* DIGITAL (engine 1, four-operator FM) was replaced by FM6 (1.0): the firmware keeps engine 1 reserved (its name
    "-"; a FELUCCA_FM4=1 build has DIGITAL back) and turns every DIGITAL sound into an FM6 one with a patch of its own
@@ -1560,7 +1608,7 @@ function makeMockDevice(opt = {}) {
         P("ARCADE", [2, 0, 127, 0, 127, 112, 0, 84], [0, 80, 0, 50], 0, 3), P("METAL", [3, 0, 100, 40, 100, 32, 0, 0], [0, 75, 40, 60], 0, 7)] },
     { name: "FM6", titles: ["OPS", "PATCH"], edit: [D("ALG", F.INT, 0, 32, 0), D("FB", F.INT, -7, 7, 0), D("MLVL", F.BIPCT, -64, 63, 0),
         D("MRAT", F.INT, -16, 16, 0), D("MEG", F.BIPCT, -64, 63, 0), D("VMOD", F.INT, -7, 7, 0), D("DTUN", F.PCT, 0, 127, 0),
-        D("SLOT", F.INT, 0, FM6.FACTORY_PK.length, 0)],   /* F1..F8, then OWN (eng_fm6.c, 1.0.3) */
+        D("SLOT", F.INT, 0, FM6.FACTORY_PK.length + 32, 0)],   /* F1..F8, then OWN (eng_fm6.c, 1.0.3), B1..B32 (1.4.1) */
       presets: [P("TINE EP", [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 127, 0], 0, 6), P("BELL", [0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 127, 0], 0, 7),
         P("FM BASS", [0, 0, 0, 0, 0, 0, 0, 2], [0, 0, 127, 0], 1, 2), P("BRASS", [0, 0, 0, 0, 0, 0, 0, 3], [0, 0, 127, 0], 0, 4),
         P("PAD", [0, 0, 0, 0, 0, 0, 30, 4], [0, 0, 127, 0], 0, 5), P("MARIMBA", [0, 0, 0, 0, 0, 0, 0, 5], [0, 0, 127, 0], 0, 3),
@@ -1617,6 +1665,7 @@ function makeMockDevice(opt = {}) {
     palettes: ["GREY", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON", "NIGHT", "MONO"],
     favorites: Array.from({ length: ENG.length + 1 }, () => []),
     menu: MENU.map((m) => m.def),                   /* the MENU settings' values (COLOR: palette) */
+    vbank: { valid: false, name: "", voices: new Array(32).fill(null), tx: null },   /* FM6's voice bank (fm6_vbank.c) */
     watch: false, v4: false, lastReq: 0,
   };
   for (const k of ["engine", "preset", "p", "step"]) {
@@ -1659,13 +1708,15 @@ function makeMockDevice(opt = {}) {
       if (st.p[P_E0 + 7] < FM6_OWN) { t.fm6 = FM6.FACTORY_PK[st.p[P_E0 + 7]].slice(); t.slot = st.p[P_E0 + 7]; } else fm6Adopt(t);
     }
   }
-  /* SLOT s turned (eng_fm6.c fm6_poll): F1..F8 that factory patch (from OWN the own patch kept aside), OWN the own
-     patch back */
+  /* SLOT s turned (eng_fm6.c fm6_poll): F1..F8 that factory patch, B1..B32 that bank voice (from OWN the own patch
+     kept aside), OWN the own patch back; a bank slot without a voice is refused: SLOT back */
   function fm6Slot(t, s) {
     if (s === t.slot) return;
-    if (s >= FM6_OWN) { if (t.own) t.fm6 = t.own; t.own = null; t.slot = FM6_OWN; return; }
+    const k = s - FM6_OWN - 1, voice = k >= 0 && k < 32 ? st.vbank.voices[k] : undefined;
+    if (voice === null) { t.p[P_E0 + 7] = t.slot ?? FM6_OWN; return; }
+    if (s >= FM6_OWN && !voice) { if (t.own) t.fm6 = t.own; t.own = null; t.slot = FM6_OWN; return; }
     if (t.slot === FM6_OWN && !t.own) t.own = t.fm6.slice();
-    t.fm6 = FM6.FACTORY_PK[s].slice(); t.slot = s;
+    t.fm6 = voice ? FM6.pack(FM6.unpack(voice)) : FM6.FACTORY_PK[s].slice(); t.slot = s;
   }
   /* t's patch was put in as its own (eng_fm6.c fm6_adopt): SLOT = the factory patch it equals, else OWN */
   function fm6Adopt(t) {
@@ -1915,7 +1966,7 @@ function makeMockDevice(opt = {}) {
           b(16);
           if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noBackup) { b(0x42); b(1); b(3); } if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(0); }
             if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); if (!opt.noMenu) { b(0x4E); b(1); b(MENU.length); } } if (ratchetOn()) { b(0x52); b(1); b(4); if (locksOn()) { b(0x4C); b(1); b(1);
-              if (capOn()) { b(0x41); b(1); b(0); b(1); b(0x54); b(1); b(16); if (!opt.noLanes) { b(0x57); b(1); b(NTRK); } } } } } }   /* (FM6 v2: no bank, preset
+              if (capOn()) { b(0x41); b(1); b(0); b(1); b(0x54); b(1); b(16); if (!opt.noLanes) { b(0x57); b(1); b(NTRK); if (!opt.noVbank) { b(0x56); b(1); b(32); } } } } } } }   /* (FM6 v2: no bank, preset
               patches; MENU settings; RATCH; locks; 1.2: 128 records, nudge, song lanes) */
         }
         break;
@@ -2013,6 +2064,34 @@ function makeMockDevice(opt = {}) {
           else if (!rc && a[0] === 3 && fm6User(a[1])) st.bank[a[1]].fm6 = pk;
           else rc = 1;
           b(a[0] ?? 127); b(a[1] ?? 127); b(rc);
+        }
+        break;
+      }
+      case CMD.FM6B_BEGIN: case CMD.FM6B_WRITE: case CMD.FM6B_END: case CMD.FM6B_LIST: {   /* editor_fm6.c, fm6_vbank.c */
+        if (opt.noFm6 || opt.noVbank || !st.uiCaps) return null;
+        const vb = st.vbank;
+        if (cmd === CMD.FM6B_BEGIN) {
+          if (!a.length) vb.tx = new Array(32).fill(null);
+          b(a.length ? 1 : 0);
+        } else if (cmd === CMD.FM6B_WRITE) {
+          b(a[0] ?? 127);
+          b(a.length !== 129 ? 1 : !vb.tx ? 5 : a[0] >= 32 || vb.tx[a[0]] ? 1 : (vb.tx[a[0]] = a.slice(1), 0));
+        } else if (cmd === CMD.FM6B_END) {
+          let rc = a.length !== 15 || a[14] > 15 ? 1 : !vb.tx ? 5 : 0;
+          if (!rc) {
+            const crc = (a[10] | a[11] << 7 | a[12] << 14 | a[13] << 21 | a[14] << 28) >>> 0;
+            if (crc32(Uint8Array.from(vb.tx.flatMap((x) => x || []))) !== crc) rc = 2;
+            else {
+              Object.assign(vb, { valid: true, name: String.fromCharCode(...a.slice(0, 10)).replace(/\s+$/, ""), voices: vb.tx });
+              for (const t of st.tracks) if (t.engine === FM6_E && t.slot > FM6_OWN) fm6Adopt(t);   /* (fm6_bank_changed) */
+            }
+            vb.tx = null;
+          }
+          b(rc); b(vb.voices.filter(Boolean).length);
+        } else {
+          if (a.length) return null;
+          b(32); b(vb.valid ? 1 : 0); s(vb.valid ? vb.name : "");
+          for (const pk of vb.voices) { b(pk ? 1 : 0); s(pk ? FM6.name(FM6.unpack(pk)) : ""); }
         }
         break;
       }
@@ -2366,6 +2445,6 @@ export {
   parseWav, resample, pyRound, normalize, FADE, takeSample, zoomView, autoTrim, rootFromName, buildSlot,
   LIB, paramKeys, sameKeys, remapParams, tailParams, patNorm, patternFromSteps, stepsFromPattern, patternUsed, gridFromSteps,
   cleanPatch, libraryFile, readLibraryFile, FLASH_OPT, bank, capturePatch, TRACK_OWN, P_CHORD, P_LANES, trackOwn, auditionPatch,
-  startWatch, mixer, FM6, FM4, CATEGORIES, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice, parseMotionAll,
+  startWatch, mixer, FM6, fm6Bank, FM4, CATEGORIES, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice, parseMotionAll,
   readDevicePreferences, aliasOf, divLength, enumShown, ENGINE_ORDER, engineOrder, devicePresetRows, MENU, MENU_TABS, readDeviceMenu,
 };

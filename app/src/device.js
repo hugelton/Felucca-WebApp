@@ -7,7 +7,7 @@
 // The behaviour is editor.html's (connect, load, onPush, keepAlive, the 400 ms poll, selfLoad), moved here.
 
 import { captureBackup, readBackup, restoreBackup } from "../../fm1backup.js";
-import { CMD, F, FLASH_OPT, FM6, Link, parseMotionAll, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDeviceMenu, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
+import { CMD, F, FLASH_OPT, FM6, fm6Bank, Link, parseMotionAll, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDeviceMenu, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
 
 export const isFelucca = (p) => /felucca/i.test(p.name || "") && p.state !== "disconnected";
 export const P = { LEVEL: 0, SLEN: 29 };
@@ -124,6 +124,7 @@ export class Device {
       }
       await this.syncPreferences();
       await this.readFm6List();
+      if (this.info.fm6Bank) await this.readFm6Bank();
       if (this.info.menuCount) try { this.menu = await readDeviceMenu((r, o) => this.rq(r, o), this.info); } catch (e) { if (e.message === "closed") throw e; this.menu = null; }
       this.loaded = true;
       this.emit("loaded", this);
@@ -498,6 +499,21 @@ export class Device {
       const r = parse[CMD.FM6_GET](await this.rq(req.fm6Get(FM6.TARGET.TRACK, k)));
       if (r.rc) { const e = new Error(`fm6 rc ${r.rc}`); e.code = "fm6"; e.rc = r.rc; throw e; }
       return r.packed;
+    });
+  }
+  /* FM6's voice bank on the device (1.4.1, INFO 56 01 32): FM6B_LIST -> this.fm6bank {n, valid, name, voices} */
+  async readFm6Bank() {
+    if (!this.info.fm6Bank) { this.fm6bank = null; return null; }
+    try { this.fm6bank = await fm6Bank.list((r, o) => this.rq(r, o)); } catch (e) { if (e.message === "closed") throw e; this.fm6bank = null; }
+    return this.fm6bank;
+  }
+  /* packed: 32 records (null: none) -> rc (0: the device holds them now; else it keeps its previous bank) */
+  fm6BankSend(packed, name, onProgress) {
+    return this.op(async () => {
+      const rc = await fm6Bank.send((r, o) => this.rq(r, o), packed, name, onProgress);
+      await this.readFm6Bank();
+      this.emit("fm6bank", this.fm6bank);
+      return rc;
     });
   }
   /* factory patch i (F1..) -> packed */
