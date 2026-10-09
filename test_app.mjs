@@ -145,6 +145,19 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   d.close();
 }
 {
+  /* PIANO HD (1.4): the files beside the editor written to a user slot as they are, read back as the device lists it */
+  const { createHash } = await import("node:crypto");
+  const hdr = readFileSync(join(APP, "samples/PIANO_HD.hdr")), data = readFileSync(join(APP, "samples/PIANO_HD.bin"));
+  const sv = readFileSync(join(APP, "src/sampview.js"), "utf8");
+  ok(hdr.length === 480 && data.length === 41345 && sv.includes(createHash("sha256").update(hdr).digest("hex")) && sv.includes(createHash("sha256").update(data).digest("hex")),
+    "PIANO HD: the shipped files are the ones the page pins (size, SHA-256)");
+  const m = proto.makeMockDevice(), d = new Device(m.access);
+  await d.open();
+  ok(await d.smpWrite(1, { hdr: new Uint8Array(hdr), data: new Uint8Array(data) }) && d.smp.slots[1].name === "PIANO HD" && d.smp.slots[1].zones === 5,
+    "PIANO HD: written to USR2 (BEGIN, WRITE, END with its header), listed as PIANO HD, 5 zones");
+  d.close();
+}
+{
   /* 1.4: a step's nudge (after the ratchet), 128 motion records read with op 8, user preset categories; firmware
      without the 1.2 tags (opt.v11): none of them sent or expected */
   const m = proto.makeMockDevice();
@@ -517,6 +530,7 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   ok(fonts.every((f) => existsSync(join(s1, "webapp/editor/fonts", f)) && !lstatSync(join(s1, "webapp/editor/fonts", f)).isSymbolicLink())
      && readFileSync(join(s1, "webapp/editor/fonts/fukiai.ttf")).length === readFileSync(join(HERE, "fukiai.ttf")).length,
     "site: .. its fonts and their licences in fonts/ (files, not links)");
+  ok(["PIANO_HD.hdr", "PIANO_HD.bin", "PIANO_HD.txt"].every((f) => existsSync(join(s1, "webapp/editor/samples", f))), "site: the editor's sample files (PIANO HD) in samples/");
   ok(["index.html", "fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"].every((f) => existsSync(join(s1, "webapp/editor-classic", f)))
      && readFileSync(join(s1, "webapp/editor-classic/index.html"), "utf8") === readFileSync(join(HERE, "editor.html"), "utf8")
      && /url=webapp\/installer\//.test(readFileSync(join(s1, "index.html"), "utf8")), "site: the classic editor beside it (its font, licence, backup), the redirect");

@@ -9,7 +9,7 @@
   webapp/installer/index.html index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, fm1backup.js, the
                               metadata and the editor's colour tokens inlined; its font is the editor's)
   webapp/editor/index.html    the editor (app/): its modules and stylesheets in one page (bundle.py),
-                              its fonts and their licences in fonts/
+                              its fonts and their licences in fonts/, the sample files it installs in samples/
   webapp/editor-classic/      the earlier editor (editor.html + fukiai.ttf, FUKIAI-LICENSE.txt, fm1backup.js)
   webapp/try/                 with --try DIR: the emulator (DIR as it is: index.html, worklet.js, felucca.wasm, fonts/ ... from the firmware's
                               release), linked from the installer and the editor; without it: left as it is.
@@ -140,6 +140,8 @@ def main(pkg, version, out, licences=None, try_dir=None, next_=False):
     (ed / "index.html").write_text(editor, encoding="utf-8")
     for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):   # (the earlier editor's, now in editor-classic/)
         (ed / f).unlink(missing_ok=True)
+    shutil.rmtree(ed / "samples", ignore_errors=True)    # (PIANO HD, 1.4: the files the editor installs, CC0)
+    shutil.copytree(HERE / "app" / "samples", ed / "samples")
     shutil.rmtree(ed / "fonts", ignore_errors=True)
     (ed / "fonts").mkdir()
     for f in sorted((HERE / "app" / "fonts").iterdir()):   # (links in the source: their files)
