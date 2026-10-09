@@ -299,6 +299,8 @@ input.text.bad { box-shadow: inset 0 -2px 0 var(--accent); }
 .item .nm .ic { color: var(--mid); }
 .item[aria-selected="true"] .nm .ic { color: var(--ink); }
 .item.dim .nm { color: var(--mid); }
+/* a value that does not play now (a nudge while QUANTIZE is ON; the LFO's RATE while SYNC is on), as the device dims it */
+.gauge.dim .v, .gauge.dim .lbl { color: var(--mid); }
 .item.over, .droplist.over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .rowacts { display: flex; gap: 2px; }

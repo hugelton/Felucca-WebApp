@@ -245,7 +245,7 @@ async function connect() {
     d.on("samples", () => samples.refresh());
     d.on("projects", () => project.refresh());
     d.on("song", () => project.refresh());
-    d.on("error", (e) => sayK(e.message === "noreply" ? "noreply" : "error", e.message === "noreply" ? "" : e.message));
+    d.on("error", (e) => (["noreply", "backupNewer"].includes(e.message) ? sayK(e.message, "", "warn") : sayK("error", e.message)));
     d.on("menu", (items) => settings.menu(items));
     d.on("closed", (reason) => {
       if (dev !== d) return;

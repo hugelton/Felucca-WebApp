@@ -7,13 +7,13 @@
 // The behaviour is editor.html's (connect, load, onPush, keepAlive, the 400 ms poll, selfLoad), moved here.
 
 import { captureBackup, readBackup, restoreBackup } from "../../fm1backup.js";
-import { CMD, F, FLASH_OPT, FM6, Link, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDeviceMenu, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
+import { CMD, F, FLASH_OPT, FM6, Link, parseMotionAll, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDeviceMenu, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
 
 export const isFelucca = (p) => /felucca/i.test(p.name || "") && p.state !== "disconnected";
 export const P = { LEVEL: 0, SLEN: 29 };
 /* the layouts this editor knows (P_COUNT, P_E0 with G_COUNT 27; editor.html knownLayout) */
 export const knownLayout = (info) => info.gcount === 27 &&
-  [[99, 91], [91, 83], [89, 81], [69, 61], [57, 49]].some(([c, e]) => info.pcount === c && info.pe0 === e);
+  [[104, 96], [99, 91], [91, 83], [89, 81], [69, 61], [57, 49]].some(([c, e]) => info.pcount === c && info.pe0 === e);
 export const chordIds = P_CHORD;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -138,8 +138,14 @@ export class Device {
     if (this.info.motionMax) await this.readMotion();
   }
   /* (1.1: the query with the kinds, op 7, so a lock stays one) */
+  /* a track's records: 1.2 / 1.4 (INFO 41 01) all of them with op 8 (up to 128), with locks op 7 (their kinds), else
+     the plain query */
+  async motionAll(track = this.sel ?? 0) {
+    if (this.info.motionCap) return parseMotionAll(await this.rq(req.motion(track, 8)));
+    return parse[CMD.MOTION](await this.rq(req.motion(track, this.info.locks ? 7 : 0)));
+  }
   async readMotion() {
-    const m = parse[CMD.MOTION](await this.rq(req.motion(this.sel ?? 0, this.info.locks ? 7 : 0)));
+    const m = await this.motionAll();
     if (m.rc || m.track !== (this.sel ?? 0)) throw new Error("motionState");
     this.motion = m;
   }
@@ -457,7 +463,13 @@ export class Device {
   }
   /* a backup file (text) checked whole before the first write; then written, the music last, and everything read again */
   backupCheck(text) { return readBackup(text); }
+  /* a backup this device cannot take back: a 1.4 project (3840 bytes, FUN10) on firmware before it (no INFO 41 01:
+     it would answer rc 1 and keep nothing of that object) */
+  backupTooNew(archive) {
+    return !this.info.motionCap && (archive.objects || []).some((o) => o.id <= 5 && o.id !== 1 && o.size === 3840);
+  }
   backupRestore(archive, onProgress) {
+    if (this.backupTooNew(archive)) { this.emit("error", new Error("backupNewer")); return Promise.resolve(false); }
     return this.op(async () => {
       await restoreBackup((r, o) => this.rq(r, o), archive, onProgress);
       await this.load();
@@ -526,14 +538,15 @@ export class Device {
 
   /* ---- steps (STEP_SET) and MOTION ---- */
   stepLen() { return Math.max(1, Math.min(this.info.nstep, this.dump.p[this.pSlen()] || 16)); }
-  /* step i becomes s ({n, notes[4], time, flags, vel, hit, acc, chance, ratchet}); -> the step as the device has it
-     (the ratchet goes only with the chance after it: 1.0.5) */
+  /* step i becomes s ({n, notes[4], time, flags, vel, hit, acc, chance, ratchet, nudge}); -> the step as the device has
+     it (the ratchet goes only with the chance before it: 1.0.5; the nudge only with the ratchet: 1.2 / 1.4) */
   async writeStep(k, s) {
     this.stepEdit.set(k, this.now());
     const st = { ...s };
     if (!this.info.chance) delete st.chance;
     if (!this.info.ratchet || !this.info.chance) delete st.ratchet;
     else if (st.ratchet != null && st.chance == null) st.chance = 100;
+    if (!this.info.nudge || st.ratchet == null) delete st.nudge;
     try {
       this.steps[k] = parse[CMD.STEP_SET](await this.rq(req.stepSet(k, st), { key: "stepset:" + k }));
       this.stepEdit.set(k, this.now());
@@ -547,9 +560,10 @@ export class Device {
       for (let k = 0; k < this.info.nstep; k++) {
         if (k % 8 === 0) this.emit("progress", { what: "steps", n: k, total: this.info.nstep });
         this.steps[k] = parse[CMD.STEP_SET](await this.rq(req.stepSet(k, { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0,
-          ...(this.info.chance ? { chance: 100 } : {}), ...(this.info.chance && this.info.ratchet ? { ratchet: 1 } : {}) })));
+          ...(this.info.chance ? { chance: 100 } : {}), ...(this.info.chance && this.info.ratchet ? { ratchet: 1 } : {}),
+          ...(this.info.chance && this.info.ratchet && this.info.nudge ? { nudge: 0 } : {}) })));
       }
-      if (this.info.motionMax) this.motion = parse[CMD.MOTION](await this.rq(req.motion(this.sel ?? 0, 2)));
+      if (this.info.motionMax) { await this.rq(req.motion(this.sel ?? 0, 2)); this.motion = await this.motionAll(); }
       this.emit("steps", this);
     });
   }
@@ -559,7 +573,8 @@ export class Device {
   motionOp(op, arg) {
     return this.op(async () => {
       let r = parse[CMD.MOTION](await this.rq(req.motion(this.sel ?? 0, op, arg)));
-      if (!r.rc && this.info.locks && op < 5) r = parse[CMD.MOTION](await this.rq(req.motion(this.sel ?? 0, 7)));
+      /* (the reply of ops 1..7 lists at most 64, and ops 1..4 no kinds: read again, op 8 or 7) */
+      if (!r.rc && (this.info.motionCap || (this.info.locks && op < 5))) r = await this.motionAll();
       if (!r.rc && r.track === (this.sel ?? 0)) { this.motion = r; this.emit("motion", r); }
       return r.rc;
     });

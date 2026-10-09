@@ -123,7 +123,20 @@ export function soundScreen(root, ui) {
     }
     viz.lfo.replaceChildren(svg("line", { class: "base", x1: 0, y1: 44.5, x2: 300, y2: 44.5 }), svg("path", { class: "curve", d: path }));
   }
-  function redraw(s, id) { if (s) return; if (id >= 1 && id <= 4) drawEnv(); else if (id === 9 || id === 10) drawLfo(); }
+  function redraw(s, id) { if (s) return; if (id >= 1 && id <= 4) drawEnv(); else if (id === 9 || id === 10) drawLfo(); marks(); }
+  /* as the device shows them (1.4): the LFO's RATE dim while SYNC (91) is on; ANALOG's DTN / MIX named SYNC / SUB
+     while WAVE is SYNC / SUB (DESC keeps the plain labels) */
+  function marks() {
+    if (!dev || !dev.dump || dev.info.pe0 < 96) return;
+    const rate = rows.get(key(0, 9)), pe0 = dev.info.pe0;
+    if (rate) rate.el.classList.toggle("dim", !!dev.dump.p[91]);
+    if (dev.engineName() !== "ANALOG") return;
+    const w = dev.pdesc[pe0], wave = w && w.names ? w.names[dev.dump.p[pe0] - w.min] : "";
+    for (const [k, alt] of [[1, "SYNC"], [2, "SUB"]]) {
+      const r = rows.get(key(0, pe0 + k)), l = r && r.el.querySelector(".lbl");
+      if (l && dev.pdesc[pe0 + k]) l.textContent = wave === alt ? alt : dev.pdesc[pe0 + k].label;
+    }
+  }
 
   /* an FM6 track: PARAMETERS (the device's macros, as on the device) or 6-OP (the whole patch) */
   const TAB_KEY = "felucca-editor-soundtab";
@@ -150,7 +163,7 @@ export function soundScreen(root, ui) {
       fm6.leave();
       root.replaceChildren(grid);
     }
-    drawEnv(); drawLfo();
+    drawEnv(); drawLfo(); marks();
     built = signature();
   }
   const signature = () => (dev && dev.dump ? JSON.stringify([getLang(), dev.dump.engine, dev.dump.preset, dev.sel, dev.pdesc.slice(dev.info.pe0)]) : "");
@@ -163,6 +176,6 @@ export function soundScreen(root, ui) {
   function refresh() {
     if (!dev || !dev.dump) return;
     for (const [k, r] of rows) { const [s, id] = k.split(":").map(Number); r.update(value(s, id), false); }
-    drawEnv(); drawLfo();
+    drawEnv(); drawLfo(); marks();
   }
 }

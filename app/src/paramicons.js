@@ -150,7 +150,6 @@ export const BY_LABEL = {
   "LANE": "symbol_drum",
   "HIT": "function_gate_unipolar",
   "SLD": "symbol_rise",
-  "USB": "port_midi",
   "TRACK": "symbol_combine",
   "SLCR": "symbol_comb",
   "PAT": "symbol_grid_nine",
@@ -183,7 +182,7 @@ export const SPECIAL = {
   "ICON_GENERIC": "ui_knob",
 };
 /* the MOD matrix: a source's icon by its value, a destination's (before E1..E8: those are the engine's own) */
-export const MOD_SRC = ["symbol_modular", "waveform_sine", "function_env_adsr_lin", "symbol_thunder_f", "symbol_keyboard", "symbol_dice", "symbol_modular", "port_midi", "symbol_volume"];
+export const MOD_SRC = ["symbol_modular", "waveform_sine", "function_env_adsr_lin", "symbol_thunder_f", "symbol_keyboard", "symbol_dice", "symbol_modular", "port_midi", "symbol_volume", "waveform_noise_step", "symbol_transition"];
 export const MOD_DST = ["symbol_modular", "waveform_pitch", "function_filter_lpf", "waveform_variant_four", "symbol_volume", "symbol_pan", "function_signal_clip", "symbol_waves", "symbol_echo", "symbol_spring", "symbol_speed", "waveform_cos"];
 /* the MENU: a row's icon by its name (the device draws none from 1.0.5), a tab's by its name (1.0.5) */
 export const MENU_ICON = {
@@ -192,5 +191,6 @@ export const MENU_TAB_ICON = {
   "DISPLAY": "symbol_eye",
   "CONTROL": "ui_knob",
   "AUDIO": "control_speaker_2",
+  "MIDI": "port_midi",
   "SYSTEM": "symbol_cog",
 };
