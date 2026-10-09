@@ -20,12 +20,19 @@
 //   project's TUNE, global 3: kind 1, -50..50 "ct"; tab AUDIO), appended (INFO 4E 01 23); the tab MIDI came in before
 //   SYSTEM (SYSTEM's index 3 -> 4). Both set the global as SET does (rc 0: the music's, no settings record)
 // - 1.3: MENU item 23 HOME (SCOPE, TRACKS: what HOME shows under its cards; DISPLAY), appended (INFO 4E 01 24)
+// - 1.5: HOME gained LEVELS (value 2, appended: the TRACKS rows, KNOB 1..4 the LEVEL of T1..T4)
+// - 1.5: MENU item 24 HELP (OFF, ON: a hint per page and layer on the device; SYSTEM), appended (INFO 4E 01 25)
 // - 1.2: ARP MODE (P_AMODE) gained DNUP UP+8 CONV DIVG PINKY THUMB WALK CHORD (values 7..14, appended)
 // - 1.2 (FUN10): P_COUNT 103, P_E0 95: LFO 2 SYNC TRIG POL (91..93) and QUANTIZE (94, the track's) before the engine
 //   values; MOTION holds 128 records (ops 1..7 reply as before: max 64, at most 64 listed; op 8 lists all, count / max
 //   as two 7-bit bytes); a project object is 3840 bytes (FUN10). (Not mocked: the step's NUDGE byte, INFO 41 / 54)
 // - FUN10, before its release: P_COUNT 104, P_E0 96: SPRD (95, SPREAD, #148, 0..127 PCT, 0 = as before) before the
 //   engine values; the matrix's SRC gained S&H SLEW (9, 10), DST DEPTH (20), ANALOG's WAVE SYNC SUB (5, 6): appended
+// - 1.5: P_COUNT 111, P_E0 103 (FUN10 as it was): the INSERT, INSRT (96, OFF SOFT HARD FOLD FUZZ CRUSH PHASR FLANG CHOR)
+//   INS A..C (97..99, their meaning by INSRT: docs/research/webapp-1.5-insert.md) MIX (100), then TYPE (101, ANALOG's
+//   filter LP BP HP, #104) and ESYNC (102, ENV SYNC OFF ON, #175: ATK DEC REL as note values, params.c ESYNC_NAMES),
+//   before the engine values; MOTION records SPRD (95) and 96..100 as the firmware does (not TYPE, ESYNC); FUN10 of
+//   104 load by count
 /*PROTO-BEGIN*/
 /* ---------------------------------------------------------------- protocol --- */
 const HDR = [0x7D, 0x46, 0x4C];
@@ -38,7 +45,7 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
   FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, MENU_DESC: 72, MENU_SET: 73,
-  FM6B_BEGIN: 74, FM6B_WRITE: 75, FM6B_END: 76, FM6B_LIST: 77 };
+  FM6B_BEGIN: 74, FM6B_WRITE: 75, FM6B_END: 76, FM6B_LIST: 77, LEARN_GET: 78, LEARN_SET: 79 };
 /* frames the device sends on its own (while WATCH is on); never replies */
 const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
 /* user preset bank: name 1..12 printable ASCII, a 16-step pattern of (note, flags 1 acc 2 slide 4 tie) */
@@ -152,12 +159,13 @@ const parse = {
       /* the tagged blocks from 53 01 on, walked by their known lengths (an unknown tag ends the walk): 1.2's 57 01 n =
          SONG sections with a slot per track (n lanes; SONG ops 4..7) */
       /* (1.4.1's 56 01 n: FM6's voice bank, n voices: cmds 74..77, SLOT 9.. = B1..Bn) */
-      const LEN = { 0x53: 1, 0x50: 1, 0x4E: 1, 0x52: 1, 0x4C: 1, 0x41: 2, 0x54: 1, 0x57: 1, 0x56: 1 };
+      const LEN = { 0x53: 1, 0x50: 1, 0x4E: 1, 0x52: 1, 0x4C: 1, 0x41: 2, 0x54: 1, 0x57: 1, 0x56: 1, 0x43: 1 };   /* (1.5's 43 01 n: MIDI LEARN, cmds 78, 79) */
       for (let q = p + 4; q + 2 < trailer.length && trailer[q + 1] === 1 && LEN[trailer[q]]; q += 2 + LEN[trailer[q]]) {
         if (trailer[q] === 0x57) o.songLanes = trailer[q + 2];
         if (trailer[q] === 0x41 && q + 3 < trailer.length) o.motionCap = trailer[q + 2] | trailer[q + 3] << 7;   /* 1.2: 128 */
         if (trailer[q] === 0x54) o.nudge = trailer[q + 2];                                                      /* 1.2: 16 */
         if (trailer[q] === 0x56) o.fm6Bank = trailer[q + 2];                                                    /* 1.4.1: 32 */
+        if (trailer[q] === 0x43) o.midiLearn = trailer[q + 2];                                                  /* 1.5: 16 */
       }
     }
     o.menuCount = o.menuCount || 0;
@@ -165,6 +173,7 @@ const parse = {
     o.motionCap = o.motionCap || 0;               /* 0: MOTION ops 0..7 only (64 records); else op 8 lists them all */
     o.nudge = o.nudge || 0;                       /* 0: no nudge byte in steps */
     o.fm6Bank = o.fm6Bank || 0;                   /* FM6's voice bank (1.4.1): 0 none */
+    o.midiLearn = o.midiLearn || 0;               /* MIDI LEARN's entries (1.5): 0 none */
     o.categories = o.motionCap > 0;               /* user preset categories (1.2 / 1.4, with the same tags) */
     return o;
   },
@@ -315,6 +324,17 @@ const parse = {
     for (let i = 0; i < o.n; i++) { const used = r.b(); o.voices.push({ used: !!used, name: r.s() }); }
     return o;
   },
+  /* MIDI LEARN's map (1.5, info.midiLearn): n, then per entry {used, cc, track, id} (id: P_*, P_E0 from INFO);
+     LEARN_SET: rc (0 saved, 1 arguments, 3 RAM only, 4 saved at STOP, 5 full), then the map */
+  [CMD.LEARN_GET](a) {
+    const o = { n: a[0] ?? 0, entries: [] };
+    for (let i = 0; i < o.n; i++) {
+      const e = a.slice(1 + 4 * i, 5 + 4 * i);
+      o.entries.push({ used: !!e[0], cc: e[1], track: e[2], id: e[3] });
+    }
+    return o;
+  },
+  [CMD.LEARN_SET](a) { return { rc: a[0], ...parse[CMD.LEARN_GET](a.slice(1)) }; },
   /* MENU settings: kind 0 an enum (one name per value min..max), 1 a number with a unit; id 127: no item at index.
      1.0.5: then the item's tab on the device (index, name; tab -1 / "" from older firmware); a kind this editor does
      not know: no tab read (its bytes are not known) */
@@ -418,6 +438,11 @@ const req = {
     const c = String(name || "").toUpperCase().charCodeAt(i);
     return c >= 32 && c <= 126 ? c : 32; }), ...[0, 7, 14, 21, 28].map((k) => (crc >>> k) & 0x7F)]],
   fm6bList: () => [CMD.FM6B_LIST, []],
+  /* MIDI LEARN's map (info.midiLearn): read it; learn cc -> parameter id of track; clear a CC; clear all */
+  learnGet: () => [CMD.LEARN_GET, []],
+  learnSet: (cc, track, id) => [CMD.LEARN_SET, [0, cc & 0x7F, track & 0x7F, id & 0x7F]],
+  learnClear: (cc) => [CMD.LEARN_SET, [1, cc & 0x7F]],
+  learnClearAll: () => [CMD.LEARN_SET, [2]],
   /* MENU settings (firmware with info.menuCount) */
   menuDesc: (i) => [CMD.MENU_DESC, [i & 0x7F]],
   menuSet: (id, v) => [CMD.MENU_SET, [id & 0x7F, ...v14enc(v)]],
@@ -1270,6 +1295,18 @@ const fm6Bank = {
   list: async (rq) => parse[CMD.FM6B_LIST](await rq(req.fm6bList())),
 };
 
+/* MIDI LEARN (1.5, EDITOR_PROTOCOL.md "MIDI LEARN"; firmware with info.midiLearn): CCs set to parameters of tracks.
+   The CCs the device never learns (bank select, MODW, RPN / NRPN data, EXPR, the pedal, the channel messages) */
+const midiLearn = {
+  never: (cc) => cc === 0 || cc === 1 || cc === 6 || cc === 11 || cc === 32 || cc === 38 || cc === 64 ||
+    (cc >= 96 && cc <= 101) || cc >= 120,
+  /* -> {n, entries: [{used, cc, track, id}]} */
+  list: async (rq) => parse[CMD.LEARN_GET](await rq(req.learnGet())),
+  /* -> {rc, n, entries} (the map after it) */
+  set: async (rq, cc, track, id) => parse[CMD.LEARN_SET](await rq(req.learnSet(cc, track, id))),
+  clear: async (rq, cc) => parse[CMD.LEARN_SET](await rq(cc === undefined ? req.learnClearAll() : req.learnClear(cc))),
+};
+
 /* ----------------------------------------------------------------- DIGITAL --- */
 /* DIGITAL (engine 1, four-operator FM) was replaced by FM6 (1.0): the firmware keeps engine 1 reserved (its name
    "-"; a FELUCCA_FM4=1 build has DIGITAL back) and turns every DIGITAL sound into an FM6 one with a patch of its own
@@ -1490,7 +1527,9 @@ const MENU = [
   { id: 21, name: "MIDI IN", names: ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], def: 0, tab: 3, g: 14 },
   { id: 22, name: "TUNE", kind: 1, min: -50, max: 50, unit: "ct", names: [], def: 0, tab: 2, g: 3 },
   /* 1.3 (Discussions #112, #134): HOME under its cards: the scope (as before) or the four tracks as rows */
-  { id: 23, name: "HOME", names: ["SCOPE", "TRACKS"], def: 0, tab: 0 },
+  { id: 23, name: "HOME", names: ["SCOPE", "TRACKS", "LEVELS"], def: 0, tab: 0 },  // (1.5: LEVELS, #134)
+  /* 1.5 (Discussion #156): a short hint per page (in the footer when it opens) and per layer (under its map) */
+  { id: 24, name: "HELP", names: ["OFF", "ON"], def: 0, tab: 4 },
 ];
 /* the MENU settings the device offers, in its menu's order (firmware without them: []); rq as the other readers */
 async function readDeviceMenu(rq, info) {
@@ -1643,8 +1682,11 @@ function makeMockDevice(opt = {}) {
   for (const l of ["KICK", "SNARE", "CLAP", "HATCL", "HATOP", "TOM", "RIM", "BELL"]) TP.push(D(l, F.PCT, 0, 127, 127));   /* 83..90: DRUM lane levels */
   TP.push(E("SYNC", ["OFF", "4BAR", "2BAR", "1/1", "1/2", "1/4", "1/8", "8T", "1/16", "16T", "1/32"], 0),   /* 1.2: LFO 2 (91..93) */
     E("TRIG", ["NOTE", "FREE"], 0), E("POL", ["BI", "UNI"], 0), E("QNTZ", ["OFF", "ON"], 1),   /* and QUANTIZE (94) */
-    D("SPRD", F.PCT, 0, 127, 0));   /* SPREAD (95, #148) */
-  const P_COUNT = 104, G_COUNT = 27, NSTEP = 64, P_E0 = 96, G_ENGSEL = 20, P_SLCR = 45;
+    D("SPRD", F.PCT, 0, 127, 0),   /* SPREAD (95, #148) */
+    E("INSRT", ["OFF", "SOFT", "HARD", "FOLD", "FUZZ", "CRUSH", "PHASR", "FLANG", "CHOR"], 0),   /* 1.5: the INSERT (96..100) */
+    D("INS A", F.PCT, 0, 127, 64), D("INS B", F.PCT, 0, 127, 96), D("INS C", F.PCT, 0, 127, 96), D("MIX", F.PCT, 0, 127, 127),
+    E("TYPE", ["LP", "BP", "HP"], 0), E("ESYNC", ["OFF", "ON"], 0));   /* 1.5: ANALOG's filter TYPE (101, #104), ENV SYNC (102, #175) */
+  const P_COUNT = 111, G_COUNT = 27, NSTEP = 64, P_E0 = 103, G_ENGSEL = 20, P_SLCR = 45;
   const MOTION_MAX = 128;                           /* motion records shared by the tracks (1.2; 64 before) */
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const enumOrig = (d, v) => d.fmt === F.ENUM && d.names ? aliasOf(d.names, v - d.min) + d.min : v;   /* params.c enum_orig */
@@ -1666,6 +1708,7 @@ function makeMockDevice(opt = {}) {
     favorites: Array.from({ length: ENG.length + 1 }, () => []),
     menu: MENU.map((m) => m.def),                   /* the MENU settings' values (COLOR: palette) */
     vbank: { valid: false, name: "", voices: new Array(32).fill(null), tx: null },   /* FM6's voice bank (fm6_vbank.c) */
+    learn: new Array(16).fill(null),                /* MIDI LEARN's map (midi_control.c): {cc, track, id} */
     watch: false, v4: false, lastReq: 0,
   };
   for (const k of ["engine", "preset", "p", "step"]) {
@@ -1936,8 +1979,8 @@ function makeMockDevice(opt = {}) {
         else if (a[1] === 3 || a[1] === 4 || a[1] === 5) {
           /* src/motion.c motion_param / motion_set_event: a step < 64, a parameter that can be recorded, its range */
           const id = a[3], rec = id < P_COUNT && (id <= 16 || (id >= 33 && id <= 36) || id === 38 || id === 39 || id === 44
-            || (id >= 61 && id <= 80) || (id >= P_LANES[0] && id <= P_LANES[7]) || id >= 95);   /* (the lane levels,
-                                                                     * SPREAD, E0..E7; not 1.2's LFO 2 / QUANTIZE 91..94) */
+            || (id >= 61 && id <= 80) || (id >= P_LANES[0] && id <= P_LANES[7]) || (id >= 95 && id <= 100) || id >= P_E0);   /* (the lane levels, SPRD 95, 1.5's INSERT 96..100, E0..E7;
+                                                                     * not LFO 2 / QUANTIZE 91..94, nor 1.5's TYPE / ESYNC 101, 102) */
           const at = m.events.findIndex(e => e.step === a[2] && e.param === a[3]);
           if (a[2] >= NSTEP || !rec) rc = 1;
           else if (a[1] === 4) { if (at >= 0) m.events.splice(at, 1); }
@@ -1966,7 +2009,7 @@ function makeMockDevice(opt = {}) {
           b(16);
           if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noBackup) { b(0x42); b(1); b(3); } if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(0); }
             if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); if (!opt.noMenu) { b(0x4E); b(1); b(MENU.length); } } if (ratchetOn()) { b(0x52); b(1); b(4); if (locksOn()) { b(0x4C); b(1); b(1);
-              if (capOn()) { b(0x41); b(1); b(0); b(1); b(0x54); b(1); b(16); if (!opt.noLanes) { b(0x57); b(1); b(NTRK); if (!opt.noVbank) { b(0x56); b(1); b(32); } } } } } } }   /* (FM6 v2: no bank, preset
+              if (capOn()) { b(0x41); b(1); b(0); b(1); b(0x54); b(1); b(16); if (!opt.noLanes) { b(0x57); b(1); b(NTRK); if (!opt.noVbank) { b(0x56); b(1); b(32); if (!opt.noLearn) { b(0x43); b(1); b(16); } } } } } } } }   /* (FM6 v2: no bank, preset
               patches; MENU settings; RATCH; locks; 1.2: 128 records, nudge, song lanes) */
         }
         break;
@@ -2093,6 +2136,26 @@ function makeMockDevice(opt = {}) {
           b(32); b(vb.valid ? 1 : 0); s(vb.valid ? vb.name : "");
           for (const pk of vb.voices) { b(pk ? 1 : 0); s(pk ? FM6.name(FM6.unpack(pk)) : ""); }
         }
+        break;
+      }
+      case CMD.LEARN_GET: case CMD.LEARN_SET: {      /* editor_learn.c, midi_learn.c ml_learn */
+        if (opt.noFm6 || opt.noVbank || opt.noLearn || !st.uiCaps) return null;
+        const L = st.learn, drop = (f) => L.forEach((e, i) => { if (e && f(e)) L[i] = null; });
+        if (cmd === CMD.LEARN_GET) {
+          if (a.length) return null;
+        } else if (a.length === 4 && a[0] === 0) {
+          const [, cc, track, id] = a;
+          if (midiLearn.never(cc) || track >= NTRK || id >= P_COUNT) b(1);
+          else {
+            drop((e) => e.cc === cc || (e.track === track && e.id === id));
+            const i = L.indexOf(null);
+            if (i < 0) b(5); else { L[i] = { cc, track, id }; b(0); }
+          }
+        } else if (a.length === 2 && a[0] === 1) { drop((e) => e.cc === a[1]); b(0); }
+        else if (a.length === 1 && a[0] === 2) { L.fill(null); b(0); }
+        else b(1);
+        b(16);
+        for (const e of L) { if (e) { b(1); b(e.cc); b(e.track); b(e.id); } else { b(0); b(0); b(0); b(0); } }
         break;
       }
       case CMD.PRESET:
@@ -2445,6 +2508,6 @@ export {
   parseWav, resample, pyRound, normalize, FADE, takeSample, zoomView, autoTrim, rootFromName, buildSlot,
   LIB, paramKeys, sameKeys, remapParams, tailParams, patNorm, patternFromSteps, stepsFromPattern, patternUsed, gridFromSteps,
   cleanPatch, libraryFile, readLibraryFile, FLASH_OPT, bank, capturePatch, TRACK_OWN, P_CHORD, P_LANES, trackOwn, auditionPatch,
-  startWatch, mixer, FM6, fm6Bank, FM4, CATEGORIES, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice, parseMotionAll,
+  startWatch, mixer, FM6, fm6Bank, midiLearn, FM4, CATEGORIES, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice, parseMotionAll,
   readDevicePreferences, aliasOf, divLength, enumShown, ENGINE_ORDER, engineOrder, devicePresetRows, MENU, MENU_TABS, readDeviceMenu,
 };
