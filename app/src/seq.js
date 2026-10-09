@@ -18,9 +18,10 @@ const TIMES = ["NOTE", "TIE", "REST"];
 export const autoName = (version) => (cmpVersion(version, "1.0.4") >= 0 ? "AUTOMATION" : "MOTION");
 /* the ids MOTION can record (EDITOR_PROTOCOL.md v7, the device's motion_param): 83 .. P_COUNT-1 are the engine's
    (1.0.x) or the DRUM lane levels and the engine's (1.1: 83..90, 91..98); not the chord keys 81, 82;
-   1.4 (P_COUNT 104): 83..90 the lane levels, 95 SPRD, 96..103 the engine's; never LFO 2 / QUANTIZE 91..94 */
-export const motionIds = (pcount = 91) => [...Array(17).keys(), 33, 34, 35, 36, 38, 39, 44, ...Array.from({ length: 20 }, (_, k) => 61 + k),
-  ...Array.from({ length: Math.max(0, pcount - 83) }, (_, k) => 83 + k).filter((id) => pcount < 104 || id < 91 || id > 94)];
+   1.4 (P_COUNT 104): 83..90 the lane levels, 95 SPRD, 96..103 the engine's; never LFO 2 / QUANTIZE 91..94;
+   1.5 (P_COUNT 111, P_E0 103): also the INSERT 96..100; never TYPE / ESYNC 101, 102 */
+export const motionIds = (pcount = 91, pe0 = pcount - 8) => [...Array(17).keys(), 33, 34, 35, 36, 38, 39, 44, ...Array.from({ length: 20 }, (_, k) => 61 + k),
+  ...Array.from({ length: Math.max(0, pcount - 83) }, (_, k) => 83 + k).filter((id) => pcount < 104 || id < 91 || (id > 94 && id < 101) || id >= pe0)];
 export const MOTION_IDS = motionIds(91);
 const EMPTY = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0, chance: 100, ratchet: 1 };
 export const stepOn = (s) => !!s && s.time === 0 && (s.n > 0 || (s.hit | 0) > 0);
@@ -193,7 +194,7 @@ export function seqScreen(root, ui) {
     });
     /* (the DRUM lane levels, 1.1: offered on a DRUM track only, where they sound) */
     const lane = (id) => dev.info.pe0 >= 91 && id >= 83 && id <= 90, drum = dev.engineName() === "DRUM";
-    const can = motionIds(dev.info.pcount).filter((id) => visible(dev.pdesc[id]) && !evs.some((e) => e.param === id) && (!lane(id) || drum));
+    const can = motionIds(dev.info.pcount, dev.info.pe0).filter((id) => visible(dev.pdesc[id]) && !evs.some((e) => e.param === id) && (!lane(id) || drum));
     const pick = el("select", { "aria-label": autoName(dev.info.version) }, ...can.map((id) => el("option", { value: id, text: dev.pdesc[id].label + (id >= dev.info.pe0 ? " · " + dev.engineName() : "") })));
     const add = el("button", { type: "button", class: "btn", disabled: !can.length || m.count >= m.max,
       onclick: () => { const id = +pick.value; dev.motionOp(3, { step: cur, param: id, value: dev.dump.p[id] }); } }, ic("control_add"), `${t("steps")} ${cur + 1}`);

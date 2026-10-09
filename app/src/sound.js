@@ -5,7 +5,7 @@
 // with the envelope and the LFO drawn from their values. Built when the sound's engine or DESC changes; values
 // change in place (a row the user holds is left alone).
 
-import { aliasOf, engineOrder } from "./proto.js";
+import { F, aliasOf, engineOrder } from "./proto.js";
 import { ENGINE_IC, el, ic, store } from "./dom.js";
 import { fm6Screen } from "./fm6.js";
 import { G_SKIP, HEAD_IC, LAYOUT, paramIcon, visible } from "./layout.js";
@@ -40,11 +40,37 @@ export function soundScreen(root, ui) {
     const k = v - nf - 1, voice = b && b.voices && b.voices[k];
     return `B${k + 1}` + (voice && voice.used ? ` ${voice.name}` : "");
   } : null);
+  /* 1.5 (P_E0 >= 103): the INSERT's A B C named and shown by its TYPE (96), as the device's ins_desc; ATK DEC REL as
+     note values while ENV SYNC (102) is ON (DESC keeps the plain TIME) */
+  const v15 = () => dev.info.pe0 >= 103;
+  const insType = () => { const d = dev.pdesc[96]; return d && d.names ? d.names[dev.dump.p[96] - d.min] || "OFF" : "OFF"; };
+  const CRUSH_RATE = ["689", "919", "1.1k", "1.4k", "1.8k", "2.2k", "2.8k", "3.7k", "4.4k", "5.5k", "7.4k", "8.8k", "11k", "15k", "22k", "44k"];
+  function insView(id, d) {
+    const ty = insType(), k = id - 97;
+    if (["SOFT", "HARD", "FOLD", "FUZZ"].includes(ty)) return [{ ...d, label: "DRIVE" }, { ...d, label: "TONE", fmt: F.CUTOFF }, { ...d, label: "LEVEL", fmt: F.DB }][k];
+    if (ty === "CRUSH") return [{ ...d, label: "BITS", fmt: F.INT, rename: (x) => String(1 + (+x >> 3)) },
+      { ...d, label: "RATE", fmt: F.INT, unit: "Hz", rename: (x) => CRUSH_RATE[Math.max(0, Math.min(15, +x >> 3))] }, { ...d, label: "LPF", fmt: F.CUTOFF }][k];
+    if (["PHASR", "FLANG", "CHOR"].includes(ty)) return [{ ...d, label: "RATE", fmt: F.LFOHZ }, { ...d, label: "DEPTH" }, { ...d, label: "FDBK" }][k];
+    return d;
+  }
+  const ESYNC_NAMES = ["0", "1/64T", "1/64", "1/32T", "1/64D", "1/32", "1/16T", "1/32D", "1/16", "1/8T", "1/16D",
+    "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2", "1/1T", "1/2D", "1/1", "1/1D", "2BAR", "3BAR", "4BAR"];
+  const esyncStep = (v) => Math.floor((v & 127) * 25 / 128), esyncValue = (k) => Math.floor((k * 128 + 24) / 25);
+  const esync = (s, id) => !s && v15() && [1, 2, 4].includes(id) && !!dev.dump.p[102];
   function row(s, id) {
-    const d = desc(s, id);
+    let d = desc(s, id);
     if (!visible(d) || (s === 1 && G_SKIP.has(d.label))) return null;
-    const r = paramRow(d, value(s, id), (v) => { dev.setParam(s, id, v); redraw(s, id); ui.changed(s, id, v); },
-      { icon: (v) => paramIcon(d, v, engineAt), rename: modDst(d) || fm6Slot(s, id) });
+    let rename = modDst(d) || fm6Slot(s, id);
+    if (!s && v15() && id === 96) d = { ...d, label: "TYPE" };   /* (DESC: INSRT; the device's INSERT page: TYPE) */
+    if (!s && v15() && id >= 97 && id <= 99) { const x = insView(id, d); rename = x.rename || null; d = { ...x }; delete d.rename; }
+    const sync = esync(s, id);
+    if (sync) { d = { ...d, fmt: F.INT, unit: "" }; rename = (x) => ESYNC_NAMES[esyncStep(+x)]; }
+    const r = paramRow(d, value(s, id), (v) => {
+      if (sync) v = esyncValue(esyncStep(v));     /* (as the device's knob: by name, the first value showing it) */
+      dev.setParam(s, id, v); redraw(s, id); ui.changed(s, id, v);
+      if (!s && v15() && (id === 96 || id === 102)) build(dev);   /* (A B C / ATK DEC REL take another meaning) */
+    }, { icon: (v) => paramIcon(desc(s, id), v, engineAt), rename });
+    if (!s && v15() && id >= 97 && id <= 100) r.el.classList.toggle("dim", !dev.dump.p[96]);   /* (TYPE OFF) */
     rows.set(key(s, id), r);
     return r.el;
   }
@@ -180,7 +206,10 @@ export function soundScreen(root, ui) {
     /* the whole sound (after a load, RELOAD, another track): rebuilt when its shape changed, else values only */
     show(device) { if (device !== dev || signature() !== built) build(device); else refresh(); },
     refresh,
-    param(s, id, v) { const r = rows.get(key(s, id)); if (r) { r.update(v); redraw(s, id); } },
+    param(s, id, v) {
+      if (!s && dev && dev.dump && v15() && (id === 96 || id === 102) && rows.get(key(s, id)) && !rows.get(key(s, id)).busy()) return build(dev);   /* (1.5) */
+      const r = rows.get(key(s, id)); if (r) { r.update(v); redraw(s, id); }
+    },
   };
   function refresh() {
     if (!dev || !dev.dump) return;

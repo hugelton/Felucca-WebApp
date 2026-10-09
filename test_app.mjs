@@ -145,6 +145,29 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   d.close();
 }
 {
+  /* 1.5: MIDI LEARN read, set, cleared (one, all); a 1.5 project (FUN10 of 111) kept from 1.2 .. 1.4 firmware; the
+     automation picker's ids by layout */
+  const { motionIds } = await import("./app/src/seq.js");
+  const m = proto.makeMockDevice(), d = new Device(m.access);
+  await d.open();
+  await d.readLearn();
+  ok(d.info.midiLearn === 16 && d.learn && d.learn.n === 16 && d.learn.entries.filter((x) => x.used).length === 0, "1.5: MIDI LEARN read (16 entries, none used)");
+  ok(await d.learnSet(74, 1, 103) === 0 && d.learn.entries.some((x) => x.used && x.cc === 74 && x.track === 1 && x.id === 103), "1.5: CC74 -> T2 E1 learned");
+  ok(await d.learnSet(0, 0, 9) === 1, "1.5: a CC the device never learns (CC0): rc 1");
+  await d.learnSet(75, 0, 9);
+  ok(await d.learnSet(74, 0, null) === 0 && d.learn.entries.filter((x) => x.used).length === 1, "1.5: one CC cleared");
+  ok(await d.learnSet(null) === 0 && d.learn.entries.every((x) => !x.used), "1.5: every CC cleared");
+  const fun = (np) => { const b = new Uint8Array(3840); b.set([0x46, 0x55, 0x4E, 0x41]); b[66] = np; return { id: 2, size: 3840, bytes: b }; };
+  ok(!d.backupTooNew({ objects: [fun(111)] }), "1.5: a 1.5 project restores on 1.5");
+  d.info.pcount = 104;
+  ok(d.backupTooNew({ objects: [fun(111)] }) && !d.backupTooNew({ objects: [fun(104)] }), "1.5: a 1.5 project (111) is kept from 1.4 firmware (104), a 1.4 one is not");
+  d.info.pcount = 111;
+  d.close();
+  const ids = motionIds(111, 103);
+  ok([95, 96, 100, 103, 110].every((i) => ids.includes(i)) && [91, 94, 101, 102].every((i) => !ids.includes(i)) && motionIds(104, 96).includes(101),
+    "1.5: AUTOMATION offers SPRD, the INSERT and E0..E7, never LFO 2 / QUANTIZE / TYPE / ESYNC (1.4: 101 is E5)");
+}
+{
   /* 1.4.1: FM6's voice bank (INFO 56 01 32): a 32-voice .syx sent (BEGIN, 32 WRITEs, END), listed; a voice played on
      the track (SLOT 9 + k); firmware without it (opt.noVbank): nothing offered */
   const m = proto.makeMockDevice(), d = new Device(m.access);

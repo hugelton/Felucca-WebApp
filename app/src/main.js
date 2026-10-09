@@ -247,6 +247,7 @@ async function connect() {
     d.on("song", () => project.refresh());
     d.on("error", (e) => (["noreply", "backupNewer"].includes(e.message) ? sayK(e.message, "", "warn") : sayK("error", e.message)));
     d.on("menu", (items) => settings.menu(items));
+    d.on("learn", () => { if (d.loaded) settings.show(d); });
     d.on("closed", (reason) => {
       if (dev !== d) return;
       dev = null; $("#update").hidden = true; renderAll(); relabel(); sayK(reason);

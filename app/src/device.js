@@ -7,13 +7,13 @@
 // The behaviour is editor.html's (connect, load, onPush, keepAlive, the 400 ms poll, selfLoad), moved here.
 
 import { captureBackup, readBackup, restoreBackup } from "../../fm1backup.js";
-import { CMD, F, FLASH_OPT, FM6, fm6Bank, Link, parseMotionAll, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDeviceMenu, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
+import { CMD, F, FLASH_OPT, FM6, fm6Bank, midiLearn, Link, parseMotionAll, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDeviceMenu, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
 
 export const isFelucca = (p) => /felucca/i.test(p.name || "") && p.state !== "disconnected";
 export const P = { LEVEL: 0, SLEN: 29 };
 /* the layouts this editor knows (P_COUNT, P_E0 with G_COUNT 27; editor.html knownLayout) */
 export const knownLayout = (info) => info.gcount === 27 &&
-  [[104, 96], [99, 91], [91, 83], [89, 81], [69, 61], [57, 49]].some(([c, e]) => info.pcount === c && info.pe0 === e);
+  [[111, 103], [104, 96], [99, 91], [91, 83], [89, 81], [69, 61], [57, 49]].some(([c, e]) => info.pcount === c && info.pe0 === e);
 export const chordIds = P_CHORD;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -478,8 +478,10 @@ export class Device {
   backupCheck(text) { return readBackup(text); }
   /* a backup this device cannot take back: a 1.4 project (3840 bytes, FUN10) on firmware before it (no INFO 41 01:
      it would answer rc 1 and keep nothing of that object) */
+  /* (and a 1.5 project, FUN10 of 111 parameters, byte 66, on 1.2 .. 1.4: more parameters than this device has) */
   backupTooNew(archive) {
-    return !this.info.motionCap && (archive.objects || []).some((o) => o.id <= 5 && o.id !== 1 && o.size === 3840);
+    const proj = (archive.objects || []).filter((o) => o.id <= 5 && o.id !== 1 && o.size === 3840);
+    return (!this.info.motionCap && proj.length > 0) || proj.some((o) => o.bytes && String.fromCharCode(...o.bytes.slice(0, 4)) === "FUNA" && o.bytes[66] > this.info.pcount);
   }
   backupRestore(archive, onProgress) {
     if (this.backupTooNew(archive)) { this.emit("error", new Error("backupNewer")); return Promise.resolve(false); }
@@ -499,6 +501,25 @@ export class Device {
       const r = parse[CMD.FM6_GET](await this.rq(req.fm6Get(FM6.TARGET.TRACK, k)));
       if (r.rc) { const e = new Error(`fm6 rc ${r.rc}`); e.code = "fm6"; e.rc = r.rc; throw e; }
       return r.packed;
+    });
+  }
+  /* MIDI LEARN (1.5, INFO 43 01 16): the device's CC map, not pushed: read when settings show. -> this.learn
+     {n, entries: [{used, cc, track, id}]} */
+  async readLearn() {
+    if (!this.info.midiLearn) { this.learn = null; return null; }
+    try { this.learn = await midiLearn.list((r, o) => this.rq(r, o)); } catch (e) { if (e.message === "closed") throw e; this.learn = null; }
+    this.emit("learn", this.learn);
+    return this.learn;
+  }
+  /* cc to track's parameter id, or (id null) cc cleared, or (cc null) every CC cleared -> rc (0 saved; 1 refused,
+     3 not saved, 4 saved at STOP, 5 sixteen learned already) */
+  learnSet(cc, track, id) {
+    return this.op(async () => {
+      const rq = (r, o) => this.rq(r, o);
+      const r = cc == null ? await midiLearn.clear(rq) : id == null ? await midiLearn.clear(rq, cc) : await midiLearn.set(rq, cc, track, id);
+      this.learn = { n: r.n, entries: r.entries };
+      this.emit("learn", this.learn);
+      return r.rc;
     });
   }
   /* FM6's voice bank on the device (1.4.1, INFO 56 01 32): FM6B_LIST -> this.fm6bank {n, valid, name, voices} */
@@ -628,7 +649,7 @@ export class Device {
   async readMenu() {
     if (!this.info || !this.info.menuCount) return null;
     await this.idle();
-    const items = await this.op(() => readDeviceMenu((r, o) => this.rq(r, o), this.info));
+    const items = await this.op(async () => { const x = await readDeviceMenu((r, o) => this.rq(r, o), this.info); if (this.info.midiLearn) await this.readLearn(); return x; });
     if (items) { this.menu = items; this.emit("menu", items); }
     return this.menu;
   }

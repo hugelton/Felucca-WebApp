@@ -5,12 +5,13 @@
 // its MENU settings (1.0.4: LEDS .. USB SERIAL, as the device lists them),
 // the editor's own (display, text size, language: kept in this browser) and what the device reported.
 
-import { el, store } from "./dom.js";
+import { el, ic, store } from "./dom.js";
 import { G_SKIP, HEAD_IC, LAYOUT, paramIcon, placedGlobals, visible } from "./layout.js";
 import { card, cells, paramRow } from "./parts.js";
 import { MENU_ICON, MENU_TAB_ICON } from "./paramicons.js";
 import { knownLayout } from "./device.js";
 import { LANGS, getLang, setLang, t } from "./text.js";
+import { midiLearn } from "./proto.js";
 
 /* the site has the emulator beside the editor (make_site.py --try) */
 /* (content "1": the release's emulator; "next": a preview of the next version) */
@@ -82,6 +83,42 @@ export function settingsScreen(root, ui) {
     return r.el;
   }
 
+  /* MIDI LEARN (1.5): the device's CC map (a CC sets one parameter of one track), read as settings open; a parameter
+     of the engine is named by the selected track's engine when it is that track, else "<engine> E<n>" */
+  function learnCard() {
+    const L = dev.info.midiLearn ? dev.learn : null;
+    if (!L) return null;
+    const pe0 = dev.info.pe0, eng = (k) => (dev.mix && dev.mix.tracks[k] ? dev.info.engines[dev.mix.tracks[k].engine] || "" : "");
+    const pname = (k, id) => (id < pe0 ? (dev.pdesc[id] || {}).label || `P${id}`
+      : k === (dev.sel ?? 0) && dev.pdesc[id] ? dev.pdesc[id].label : `${eng(k)} E${id - pe0 + 1}`);
+    const used = L.entries.filter((x) => x.used).sort((a, b) => a.cc - b.cc);
+    const say = (rc) => (rc === 5 ? ui.say(t("learnFull"), "warn") : ui.prefResult(rc));
+    const rows = used.map((x) => el("div", { class: "learnrow" },
+      el("b", { text: `CC${x.cc}` }), el("span", { text: `T${x.track + 1} ${pname(x.track, x.id)}` }),
+      el("button", { type: "button", class: "iconbtn sm", "aria-label": `CC${x.cc} ×`, onclick: async () => say(await dev.learnSet(x.cc, 0, null)) }, ic("symbol_cross"))));
+    /* add: a CC (never the ones the device does not learn), a track, a parameter of the selected track */
+    const ccIn = el("input", { class: "text", type: "number", min: 0, max: 127, value: "", placeholder: "CC", "aria-label": "CC" });
+    const trSel = el("select", { "aria-label": t("track") }, ...[0, 1, 2, 3].map((k) => el("option", { value: k, text: `T${k + 1}`, selected: k === (dev.sel ?? 0) })));
+    const ids = [];
+    for (let id = 0; id < dev.info.pcount; id++) if (visible(dev.pdesc[id]) && !(id >= 81 && id <= 82)) ids.push(id);
+    const idSel = el("select", { "aria-label": "PARAM" }, ...ids.map((id) => el("option", { value: id, text: dev.pdesc[id].label + (id >= pe0 ? ` · ${dev.engineName()}` : "") })));
+    const add = el("button", { type: "button", class: "btn", onclick: async () => {
+      const cc = +ccIn.value;
+      if (ccIn.value === "" || !Number.isInteger(cc) || cc < 0 || cc > 127 || midiLearn.never(cc)) { ccIn.classList.add("bad"); return; }
+      ccIn.classList.remove("bad");
+      say(await dev.learnSet(cc, +trSel.value, +idSel.value));
+    } }, ic("control_add"), "ADD");
+    const c = card("MIDI LEARN", "port_midi",
+      el("div", { class: "rows" }, ...rows),
+      el("div", { class: "addrow learnadd" }, ccIn, trSel, idSel, add),
+      el("div", { class: "acts wrap" },
+        el("button", { type: "button", class: "btn", onclick: () => dev.readLearn() }, ic("control_arrow_loop"), "RELOAD"),
+        el("button", { type: "button", class: "btn", disabled: !used.length, onclick: async () => { if (await ui.confirm(`${t("clearAll")} (MIDI LEARN)?`)) say(await dev.learnSet(null)); } },
+          ic("symbol_trash"), t("clearAll"))));
+    c.aside.textContent = `${used.length} / ${L.n}`;
+    return c;
+  }
+
   function editor() {
     const th = THEMES.indexOf(store.get("felucca-editor-theme", "system"));
     const k = SIZES.indexOf(+store.get("felucca-editor-size", "1"));
@@ -121,6 +158,8 @@ export function settingsScreen(root, ui) {
       const disp = dev && dev.dump ? display() : null;
       if (disp) grid.append(disp);
       if (dev && dev.dump) grid.append(...menu());
+      const ln = dev && dev.dump ? learnCard() : null;
+      if (ln) grid.append(ln);
       grid.append(editor(), system());
       root.replaceChildren(grid);
     },
