@@ -35,7 +35,7 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   d.on("reload", () => seen.reload++);
   d.on("closed", (r) => { seen.closed = r; });
   await d.open();
-  ok(d.loaded && seen.loaded === 1 && d.info.pcount === 99 && d.pdesc.length === 99 && d.gdesc.length === d.info.gcount,
+  ok(d.loaded && seen.loaded === 1 && d.info.pcount === 104 && d.pdesc.length === 104 && d.gdesc.length === d.info.gcount,
     "device: open reads INFO and every DESC");
   ok(seen.progress > d.info.pcount && d.names.length === d.info.nengines && d.steps.length === d.info.nstep,
     "device: NAMES for every engine, every step, progress reported");
@@ -150,7 +150,8 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   const m = proto.makeMockDevice();
   const d = new Device(m.access);
   await d.open();
-  ok(d.info.locks === 1 && d.info.pcount === 99 && d.info.pe0 === 91, "locks: INFO 4C 01 01 after the ratchet's; P_COUNT 99, P_E0 91");
+  ok(d.info.locks === 1 && d.info.pcount === 104 && d.info.pe0 === 96 && d.info.motionCap === 128 && d.info.nudge === 16 && d.info.songLanes === 4,
+    "locks: INFO 4C 01 01 after the ratchet's, then (1.4) 41 01 00 01, 54 01 16, 57 01 4; P_COUNT 104, P_E0 96");
   ok(await d.motionOp(5, { step: 2, param: 9, value: 40 }) === 0 && d.motion.events[0].lock === true, "locks: a lock set, read back as one");
   ok(await d.motionOp(3, { step: 3, param: 10, value: 1 }) === 0 && d.motion.events.find((e) => e.step === 3).lock === false
      && d.motion.events.find((e) => e.step === 2).lock === true, "locks: after an automation edit (op 3) the kinds are read again");
@@ -194,8 +195,8 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   const d = new Device(m.access);
   await d.open();
   ok(d.info.menuCount === proto.MENU.length && d.menu && d.menu.length === proto.MENU.length && d.menu[4].name === "LEDS" && d.menu[4].value === 2
-     && d.menu.filter((x) => x.tabName === "AUDIO").map((x) => x.name).join() === "SPEAKER EQ,USB LEVEL,CLICK,CLICK LEVEL,COUNT-IN",
-    "menu: read on open (every item, LEDS DIM HI; AUDIO with the metronome and count-in, 1.1)");
+     && d.menu.filter((x) => x.tabName === "AUDIO").map((x) => x.name).join() === "SPEAKER EQ,USB LEVEL,CLICK,CLICK LEVEL,COUNT-IN,TUNE",
+    "menu: read on open (every item, LEDS DIM HI; AUDIO with the metronome, count-in and (1.4) TUNE)");
   const seen = [];
   d.on("menu", (x) => seen.push(x.length));
   ok(await d.menuSet(4, 3) === 0 && m.state.menu[4] === 3 && d.menu[4].value === 3 && seen.length === 1, "menu: a value set (LEDS INV)");
@@ -407,7 +408,7 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   }
   /* the full backup: saved, restored, saved again: the same objects */
   const file = await d.backupSave();
-  ok(file && file.format === "felucca-backup" && file.objects.length === 13 && file.objects[2 + empty].size === 3648, "project: a full backup (13 objects)");
+  ok(file && file.format === "felucca-backup" && file.objects.length === 13 && file.objects[2 + empty].size === 3840, "project: a full backup (13 objects, a project FUN10: 3840 bytes)");
   const archive = d.backupCheck(JSON.stringify(file));
   ok((await d.backupRestore(archive)) && d.loaded, "project: restored, everything read again");
   const again = await d.backupSave();

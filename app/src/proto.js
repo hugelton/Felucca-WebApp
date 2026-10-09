@@ -14,7 +14,18 @@
 // - 1.1: MENU items 12..14 CLICK, CLICK LEVEL, COUNT-IN (AUDIO), appended after USB SERIAL (INFO 4E 01 15)
 // - 1.2: MENU item 15 RESTORE LAST (SYSTEM), appended (INFO 4E 01 16); item 16 SCALE LEDS (CONTROL), appended (INFO 4E 01 17)
 // - 1.1.5: MENU item 17 SCREEN OFF (DISPLAY), appended (INFO 4E 01 18)
+// - 1.2: MENU items 18 SCOPE (DISPLAY), 19 STEP PREVIEW, 20 CHORD ENTRY (CONTROL), appended (INFO 4E 01 21);
+//   GLO > SYSTEM ROUT (global 14) gained CH5-8 CH9-12 CH13-16 (values 2..4, appended)
+// - 1.2: GLO > GLOBAL / SYSTEM gone: MENU items 21 MIDI IN (the project's ROUT, global 14; tab MIDI) and 22 TUNE (the
+//   project's TUNE, global 3: kind 1, -50..50 "ct"; tab AUDIO), appended (INFO 4E 01 23); the tab MIDI came in before
+//   SYSTEM (SYSTEM's index 3 -> 4). Both set the global as SET does (rc 0: the music's, no settings record)
+// - 1.3: MENU item 23 HOME (SCOPE, TRACKS: what HOME shows under its cards; DISPLAY), appended (INFO 4E 01 24)
 // - 1.2: ARP MODE (P_AMODE) gained DNUP UP+8 CONV DIVG PINKY THUMB WALK CHORD (values 7..14, appended)
+// - 1.2 (FUN10): P_COUNT 103, P_E0 95: LFO 2 SYNC TRIG POL (91..93) and QUANTIZE (94, the track's) before the engine
+//   values; MOTION holds 128 records (ops 1..7 reply as before: max 64, at most 64 listed; op 8 lists all, count / max
+//   as two 7-bit bytes); a project object is 3840 bytes (FUN10). (Not mocked: the step's NUDGE byte, INFO 41 / 54)
+// - FUN10, before its release: P_COUNT 104, P_E0 96: SPRD (95, SPREAD, #148, 0..127 PCT, 0 = as before) before the
+//   engine values; the matrix's SRC gained S&H SLEW (9, 10), DST DEPTH (20), ANALOG's WAVE SYNC SUB (5, 6): appended
 /*PROTO-BEGIN*/
 /* ---------------------------------------------------------------- protocol --- */
 const HDR = [0x7D, 0x46, 0x4C];
@@ -36,6 +47,16 @@ const F = { INT: 0, PCT: 1, BIPCT: 2, TIME: 3, LFOHZ: 4, CUTOFF: 5, DB: 6, SEMI:
 const v14enc = (v) => { const u = Math.max(-8192, Math.min(8191, Math.round(v))) + 8192; return [u & 0x7F, (u >> 7) & 0x7F]; };
 const v14dec = (lo, hi) => (lo | (hi << 7)) - 8192;
 function strEnc(s) { const a = []; for (const c of String(s)) a.push(c.charCodeAt(0) & 0x7F); a.push(0); return a; }
+
+/* MOTION op 8 (1.2, INFO 41 01): every record of the track (up to 128), count and max as two 7-bit bytes each, then
+   one kind byte per record (0 automation, 1 lock) */
+function parseMotionAll(a) {
+  const r = new Reader(a), o = { track: r.b(), rc: r.b(), on: !!r.b(), count: r.b() | r.b() << 7, max: r.b() | r.b() << 7, events: [] };
+  if (o.count > o.max || a.length !== 7 + o.count * 5) throw new Error("Invalid motion reply");
+  for (let i = 0; i < o.count; i++) o.events.push({ step: r.b(), param: r.b(), value: r.v() });
+  for (let i = 0; i < o.count; i++) o.events[i].lock = !!r.b();
+  return o;
+}
 
 /* only ever builds F0 7D 46 4C ... F7 */
 function frame(cmd, args = []) {
@@ -81,6 +102,8 @@ function readHits(r, o) {
   if (o.chance > 100) throw new Error("Invalid step chance");
   o.ratchet = r.i < r.a.length ? r.b() : 1;       /* RATCH (INFO 52 01): the step's hits 1..4; older firmware: 1 */
   if (o.ratchet < 1 || o.ratchet > 4) throw new Error("Invalid step ratchet");
+  o.nudge = r.i < r.a.length ? r.b() - 8 : 0;     /* NUDGE (INFO 54 01, 1.2): -8..+7 sixteenths of the step; older: 0 */
+  if (o.nudge < -8 || o.nudge > 7) throw new Error("Invalid step nudge");
   return o;
 }
 
@@ -123,8 +146,20 @@ const parse = {
       if (trailer[r] === 0x4E && trailer[r + 1] === 1) r += 3;                            /* and the MENU settings (1.0.4) */
       if (o.syncCaps && trailer[r] === 0x52 && trailer[r + 1] === 1) { o.ratchet = trailer[r + 2]; r += 3; }   /* RATCH: max hits (1.0.5) */
       if (o.ratchet && trailer[r] === 0x4C && trailer[r + 1] === 1) o.locks = trailer[r + 2];   /* parameter locks (1.1) */
+      /* the tagged blocks from 53 01 on, walked by their known lengths (an unknown tag ends the walk): 1.2's 57 01 n =
+         SONG sections with a slot per track (n lanes; SONG ops 4..7) */
+      const LEN = { 0x53: 1, 0x50: 1, 0x4E: 1, 0x52: 1, 0x4C: 1, 0x41: 2, 0x54: 1, 0x57: 1 };
+      for (let q = p + 4; q + 2 < trailer.length && trailer[q + 1] === 1 && LEN[trailer[q]]; q += 2 + LEN[trailer[q]]) {
+        if (trailer[q] === 0x57) o.songLanes = trailer[q + 2];
+        if (trailer[q] === 0x41 && q + 3 < trailer.length) o.motionCap = trailer[q + 2] | trailer[q + 3] << 7;   /* 1.2: 128 */
+        if (trailer[q] === 0x54) o.nudge = trailer[q + 2];                                                      /* 1.2: 16 */
+      }
     }
     o.menuCount = o.menuCount || 0;
+    o.songLanes = o.songLanes || 0;
+    o.motionCap = o.motionCap || 0;               /* 0: MOTION ops 0..7 only (64 records); else op 8 lists them all */
+    o.nudge = o.nudge || 0;                       /* 0: no nudge byte in steps */
+    o.categories = o.motionCap > 0;               /* user preset categories (1.2 / 1.4, with the same tags) */
     return o;
   },
   [CMD.UI_STATE](a) {
@@ -170,7 +205,9 @@ const parse = {
   [CMD.SONG](a) {
     const r = new Reader(a);
     const o = { op: r.b(), rc: r.b(), count: r.b(), playing: r.b(), row: r.b(), remaining: r.b(), rows: [] };
-    for (let i = 0; i < o.count; i++) o.rows.push({ slot: r.b(), repeat: r.b() });
+    /* ops 4..7 (57 01 n): a section's slot per track (0..3 A..D, 4 "-" silent) and its repeats; else a row's slot */
+    for (let i = 0; i < o.count; i++)
+      o.rows.push(o.op >= 4 ? { slots: [r.b(), r.b(), r.b(), r.b()], repeat: r.b() } : { slot: r.b(), repeat: r.b() });
     return o;
   },
   [CMD.MOTION](a) {
@@ -205,6 +242,7 @@ const parse = {
     const r = new Reader(a);
     const o = { start: r.b(), count: r.b(), total: r.b(), slots: [] };
     for (let i = 0; i < o.count; i++) o.slots.push({ slot: o.start + i, used: r.b(), engine: r.b(), name: r.s() });
+    if (r.i + o.count <= a.length) o.slots.forEach((x) => { x.category = r.b(); });   /* 1.2: one category byte per slot */
     return o;
   },
   /* needs P_COUNT from INFO */
@@ -218,6 +256,7 @@ const parse = {
       o.grid = o.pattern.map(([h, c]) => { const x = r.b(), hit = h | (x & 1) << 7; return [hit, (c | (x & 2) << 6) & hit]; });
       o.pattern = null;
     }
+    if (r.i < a.length) o.category = r.b();          /* 1.2: the sound's category (CATEGORIES), after the kind */
     return o;
   },
   [CMD.UP_PUT](a) { return parse[CMD.SMP_BEGIN](a); },
@@ -296,18 +335,25 @@ const req = {
     return [CMD.STEP_SET, [i, n, ...notes, Math.max(0, Math.min(2, st.time | 0)), st.flags & 3, (st.vel | 0) & 0x7F,
       ...(st.hit == null && st.chance == null ? [] : hitsEnc(st.hit | 0, st.acc | 0)),
       ...(st.chance == null ? [] : [Math.max(0, Math.min(100, st.chance | 0))]),
-      ...(st.chance == null || st.ratchet == null ? [] : [Math.max(1, Math.min(4, st.ratchet | 0))])]];   /* (only after the chance) */
+      ...(st.chance == null || st.ratchet == null ? [] : [Math.max(1, Math.min(4, st.ratchet | 0))]),   /* (only after the chance) */
+      ...(st.chance == null || st.ratchet == null || st.nudge == null ? [] : [Math.max(-8, Math.min(7, st.nudge | 0)) + 8])]];   /* (the ratchet) */
   },
   preset: (e, p) => [CMD.PRESET, [e & 0x7F, p & 0x7F]],
   project: (op, slot) => { if (![0, 1, 2].includes(op)) throw new Error("bad PROJECT op"); return [CMD.PROJECT, [op, slot & 3]]; },   /* 0 load, 1 save, 2 query */
-  song: (op = 0, rows = []) => {
-    if (![0, 1, 2, 3].includes(op) || rows.length > 16 || rows.some((r) => !Number.isInteger(r.slot) || r.slot < 0 || r.slot > 3 || !Number.isInteger(r.repeat) || r.repeat < 1 || r.repeat > 16)) throw new Error("bad SONG rows");
-    return [CMD.SONG, op === 1 ? [op, rows.length, ...rows.flatMap((r) => [r.slot, r.repeat])] : [op]];
+  /* SONG: op 0 query, 1 set, 2 start, 3 stop; lanes (firmware with 57 01 4, 1.2): the same as ops 4..7, the rows
+     sections { slots: [T1, T2, T3, T4] (0..3 A..D, 4 = "-"), repeat } */
+  song: (op = 0, rows = [], lanes = false) => {
+    const sl = (r) => lanes ? Array.isArray(r.slots) && r.slots.length === 4 && r.slots.every((x) => Number.isInteger(x) && x >= 0 && x <= 4)
+      : Number.isInteger(r.slot) && r.slot >= 0 && r.slot <= 3;
+    if (![0, 1, 2, 3].includes(op) || rows.length > 16 || rows.some((r) => !sl(r) || !Number.isInteger(r.repeat) || r.repeat < 1 || r.repeat > 16)) throw new Error("bad SONG rows");
+    const o = op | (lanes ? 4 : 0);
+    return [CMD.SONG, op === 1 ? [o, rows.length, ...rows.flatMap((r) => lanes ? [...r.slots, r.repeat] : [r.slot, r.repeat])] : [o]];
   },
   motion: (track, op = 0, arg = {}) => {
-    /* 1.1: op 5 set a lock (as 3), 6 clear a step's locks (step 127: every step's), 7 the query with the kinds */
-    if (!Number.isInteger(track) || track < 0 || track > 3 || ![0, 1, 2, 3, 4, 5, 6, 7].includes(op)) throw new Error("Invalid motion request");
-    return [CMD.MOTION, [track, ...(op === 0 ? [] : op === 1 ? [op, arg.on ? 1 : 0] : op === 2 || op === 7 ? [op] :
+    /* 1.1: op 5 set a lock (as 3), 6 clear a step's locks (step 127: every step's), 7 the query with the kinds;
+       1.2: 8 every record (up to 128, parseMotionAll) */
+    if (!Number.isInteger(track) || track < 0 || track > 3 || ![0, 1, 2, 3, 4, 5, 6, 7, 8].includes(op)) throw new Error("Invalid motion request");
+    return [CMD.MOTION, [track, ...(op === 0 ? [] : op === 1 ? [op, arg.on ? 1 : 0] : op === 2 || op === 7 || op === 8 ? [op] :
       op === 6 ? [op, arg.step === 127 ? 127 : arg.step & 63] :
       [op, arg.step & 63, arg.param & 127, ...(op === 3 || op === 5 ? v14enc(arg.value) : [])])]];
   },
@@ -321,12 +367,15 @@ const req = {
   upGet: (s) => [CMD.UP_GET, [s & 0x7F]],
   /* patch: {engine, name, p: P_COUNT values, pattern: 16 x [note, flags] or grid: 16 x [hit, acc] (v5: kind 1)} */
   /* (an unset value: 0, but a DRUM lane level 127, as the device loads a 1.0.x record: the kit not silenced) */
-  upPut: (s, pt) => [CMD.UP_PUT, [s & 0x7F, pt.engine & 0x7F, ...strEnc(upName(pt.name)),
+  /* cat (1.2 / 1.4 only: older firmware refuses it): the category byte, after the kind and its 16 bytes (a pattern's 0) */
+  upPut: (s, pt, cat = null) => [CMD.UP_PUT, [s & 0x7F, pt.engine & 0x7F, ...strEnc(upName(pt.name)),
     ...pt.p.flatMap((v, i) => v14enc(v ?? (pt.p.length >= 99 && P_LANES.includes(i) ? 127 : 0))),
     ...(pt.grid
       ? [...Array.from({ length: UP.PAT }, (_, i) => hitsEnc(...(pt.grid[i] || [0, 0])).slice(0, 2)).flat(), 1,
          ...Array.from({ length: UP.PAT }, (_, i) => hitsEnc(...(pt.grid[i] || [0, 0]))[2])]
-      : Array.from({ length: UP.PAT }, (_, i) => { const x = (pt.pattern || [])[i] || [0, 0]; return [x[0] & 0x7F, x[1] & 7]; }).flat())]],
+      : [...Array.from({ length: UP.PAT }, (_, i) => { const x = (pt.pattern || [])[i] || [0, 0]; return [x[0] & 0x7F, x[1] & 7]; }).flat(),
+         ...(cat == null ? [] : [0, ...new Array(UP.PAT).fill(0)])]),
+    ...(cat == null ? [] : [Math.max(0, Math.min(8, cat | 0))])]],
   upStore: (s, name) => [CMD.UP_STORE, [s & 0x7F, ...strEnc(name ? upName(name) : "")]],   /* "": the device names it ("ANALOG 07") */
   upLoad: (s) => [CMD.UP_LOAD, [s & 0x7F]],
   upErase: (s) => [CMD.UP_ERASE, [s & 0x7F]],
@@ -944,7 +993,8 @@ async function capturePatch(rq, info, name) {
 const TRACK_OWN = new Set([0, 39, 40, ...Array.from({ length: 16 }, (_, i) => 17 + i), 45, 46, 47, 48]);
 const P_CHORD = [81, 82];                          /* core.h P_CHRD, P_VOIC (since P_COUNT 91, P_E0 83) */
 const P_LANES = [83, 84, 85, 86, 87, 88, 89, 90];   /* core.h P_LN0..P_LN7: the DRUM lane levels (since P_COUNT 99, P_E0 91) */
-const trackOwn = (i, pe0) => TRACK_OWN.has(i) || (pe0 >= 83 && P_CHORD.includes(i));
+const P_QNTZ = 94;                                  /* core.h P_SQNT: QUANTIZE, the track's (since P_COUNT 103, P_E0 95) */
+const trackOwn = (i, pe0) => TRACK_OWN.has(i) || (pe0 >= 83 && P_CHORD.includes(i)) || (pe0 >= 95 && i === P_QNTZ);
 /* play a patch without writing flash, as UP_LOAD would load it: the sound only. SET the engine (G_ENGSEL:
    engine defaults and its first preset), then every instrument parameter that differs, except the track's
    own (TRACK_OWN). The steps are never touched. The device keeps a copy of the sound from before (SAVE held
@@ -1356,26 +1406,38 @@ const engineLabel = (engines, e) => (e === 1 && (engines || [])[1] === "-" ? "FM
 /* the firmware's MENU settings as MENU_DESC lists them (src/menu_items.c, src/editor_menu.c; test_web.mjs: == the
    firmware's, build/host/menu.json): id, name, value names (COLOR: the palettes, UI_PALETTES), the default, (1.0.5)
    the tab the device shows it in (MENU_TABS: its names, menu_items.c MTAB_NAME) */
-const MENU_TABS = ["DISPLAY", "CONTROL", "AUDIO", "SYSTEM"];
+const MENU_TABS = ["DISPLAY", "CONTROL", "AUDIO", "MIDI", "SYSTEM"];   /* (1.2: MIDI before SYSTEM) */
 const MENU = [
   { id: 0, name: "COLOR", names: null, def: 0, tab: 0 }, { id: 1, name: "STYLE", names: ["FLAT", "LINE"], def: 0, tab: 0 },
-  { id: 2, name: "LARGE", names: ["OFF", "ON"], def: 0, tab: 0 }, { id: 3, name: "ANIM", names: ["ON", "OFF"], def: 0, tab: 0 },
+  { id: 2, name: "LARGE", names: ["OFF", "ON"], def: 0, tab: 0 }, { id: 3, name: "ANIM", names: ["ON", "OFF", "IDLE"], def: 0, tab: 0 },  // (1.2: IDLE, the LEDs' idle animation)
   { id: 4, name: "LEDS", names: ["OFF", "DIM LO", "DIM HI", "INV"], def: 2, tab: 0 },
   { id: 5, name: "HOLD", names: ["0.3 s", "0.4 s", "0.5 s", "0.6 s"], def: 1, tab: 1 },
   { id: 6, name: "KNOB ACCEL", names: ["OFF", "ON"], def: 0, tab: 1 }, { id: 7, name: "FX LATCH", names: ["OFF", "ON"], def: 0, tab: 1 },
   { id: 8, name: "BPM LOCK", names: ["OFF", "ON"], def: 0, tab: 1 },
   { id: 9, name: "SPEAKER EQ", names: ["FLAT", "LOWCUT", "BASS+"], def: 0, tab: 2 },
-  { id: 10, name: "USB LEVEL", names: ["MASTER", "FIXED"], def: 0, tab: 2 }, { id: 11, name: "USB SERIAL", names: ["ON", "OFF"], def: 0, tab: 3 },
+  { id: 10, name: "USB LEVEL", names: ["MASTER", "FIXED"], def: 0, tab: 2 }, { id: 11, name: "USB SERIAL", names: ["ON", "OFF"], def: 0, tab: 4 },
   /* 1.1 (Discussion #131): the metronome and the count-in, appended (index = id), shown in AUDIO */
   { id: 12, name: "CLICK", names: ["OFF", "REC", "ON"], def: 0, tab: 2 },
   { id: 13, name: "CLICK LEVEL", names: ["LOW", "MID", "HIGH"], def: 1, tab: 2 },
   { id: 14, name: "COUNT-IN", names: ["OFF", "1 BAR", "2 BARS"], def: 0, tab: 2 },
   /* 1.2 (Discussion #130): the last session back at power-on (the autosave), appended, shown in SYSTEM */
-  { id: 15, name: "RESTORE LAST", names: ["ON", "OFF"], def: 0, tab: 3 },
+  { id: 15, name: "RESTORE LAST", names: ["ON", "OFF"], def: 0, tab: 4 },
   /* 1.2 (Discussion #127): the keys show the selected track's scale, appended, shown in CONTROL */
   { id: 16, name: "SCALE LEDS", names: ["OFF", "ON"], def: 0, tab: 1 },
   /* 1.1.5: the screen and its backlight off after a while without panel input (the sound goes on), shown in DISPLAY */
   { id: 17, name: "SCREEN OFF", names: ["NEVER", "5 MIN", "15 MIN", "30 MIN", "60 MIN"], def: 0, tab: 0 },  // (1.1.5.1: NEVER by default; 1.1.5: 30 MIN)
+  /* 1.2 (Discussion #165): the HOME scope after MASTER (OUT) or before it (MIX: its size does not follow the volume) */
+  { id: 18, name: "SCOPE", names: ["OUT", "MIX"], def: 0, tab: 0 },
+  /* 1.2 (Discussion #169): on SEQ > STEP, stopped, moving the cursor sounds the step; (#155) step recording's keys add
+     to the cursor step one after another (ADD) instead of writing the keys held together and moving on (HOLD) */
+  { id: 19, name: "STEP PREVIEW", names: ["OFF", "ON"], def: 0, tab: 1 },
+  { id: 20, name: "CHORD ENTRY", names: ["HOLD", "ADD"], def: 0, tab: 1 },
+  /* 1.2: the old GLO > SYSTEM ROUT and GLO > GLOBAL TUNE, the project's values (g: the global they set, as SET does);
+     TUNE a number (kind 1: min..max, its unit) */
+  { id: 21, name: "MIDI IN", names: ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], def: 0, tab: 3, g: 14 },
+  { id: 22, name: "TUNE", kind: 1, min: -50, max: 50, unit: "ct", names: [], def: 0, tab: 2, g: 3 },
+  /* 1.3 (Discussions #112, #134): HOME under its cards: the scope (as before) or the four tracks as rows */
+  { id: 23, name: "HOME", names: ["SCOPE", "TRACKS"], def: 0, tab: 0 },
 ];
 /* the MENU settings the device offers, in its menu's order (firmware without them: []); rq as the other readers */
 async function readDeviceMenu(rq, info) {
@@ -1392,8 +1454,8 @@ function makeMockDevice(opt = {}) {
   const NONOFF = ["OFF", "ON"], NDIV = ["1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"], NGO = ["--", "GO"], NDASH = ["--"];
   const D = (label, fmt, min, max, def, names = null, unit = "") => ({ label, fmt, min, max, def, names, unit });
   const E = (label, names, def) => D(label, F.ENUM, 0, names.length - 1, def, names);
-  const MSRC = ["OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR"];
-  const MDST = ["OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE", "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"];
+  const MSRC = ["OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"];   /* (append-only: S&H SLEW, #132) */
+  const MDST = ["OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE", "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH"];   /* (DEPTH: #132) */
   const TP = [
     D("LVL", F.DB, 0, 127, 104),
     D("ATK", F.TIME, 0, 127, 10), D("DEC", F.TIME, 0, 127, 70), D("SUS", F.PCT, 0, 127, 90), D("REL", F.TIME, 0, 127, 60),
@@ -1414,19 +1476,19 @@ function makeMockDevice(opt = {}) {
     D("BPM", F.BPM, 40, 240, 120), D("SWG", F.PCT, 0, 100, 0), E("CLK", ["INT", "USB", "TRS"], 0), D("TUNE", F.INT, -50, 50, 0),
     E("TIME", NDIV, 1), D("FDBK", F.PCT, 0, 120, 60), D("COLR", F.PCT, 0, 127, 70), D("MIX", F.PCT, 0, 127, 90),
     D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60), D("CRT", F.LFOHZ, 0, 127, 40), D("CDP", F.PCT, 0, 127, 60),
-    E("MIDI", ["USB", "TRS"], 0), E("SYNC", NDASH, 0), E("ROUT", ["CH1-4", "SEL"], 0), D("CPU", F.INT, 0, 0, 0),
+    E("MIDI", ["USB", "TRS"], 0), E("SYNC", NDASH, 0), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
       "GRAIN", "PHYS", "DRUM", "NOISE", "FM6", "SLICE"], 0), E("SET", NGO, 0),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
-    E("TYPE", ["ROOM", "SPRING"], 0),               /* G_RTYPE (id 24, was G_DRCH): the reverb's model */
+    E("TYPE", ["ROOM", "SPRING", "HALL"], 2),       /* G_RTYPE (id 24, was G_DRCH): the reverb's model (HALL: 1.2) */
     D("-", F.INT, 0, 0, 0), D("-", F.INT, 0, 0, 0),   /* G_DRLVL, G_DRREV: inert since 1.0 */
   ];
   const NONE = D("-", F.INT, 0, 0, 0);
   const RATIO = [".5", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "14", "16"];
   const P = (name, e, env = [10, 70, 90, 60], mono = 0, pat = 0) => ({ name, e, env, mono, pat });
   const ENG = [
-    { name: "ANALOG", titles: ["OSC", "FLT"], edit: [E("WAVE", ["SAW", "SQR", "TRI", "SIN", "PWM"], 0), D("DTN", F.INT, 0, 127, 10, null, "ct"), D("MIX", F.PCT, 0, 127, 64),
+    { name: "ANALOG", titles: ["OSC", "FLT"], edit: [E("WAVE", ["SAW", "SQR", "TRI", "SIN", "PWM", "SYNC", "SUB"], 0), D("DTN", F.INT, 0, 127, 10, null, "ct"), D("MIX", F.PCT, 0, 127, 64),
         D("NOIS", F.PCT, 0, 127, 0), D("CUT", F.CUTOFF, 0, 127, 90), D("RES", F.PCT, 0, 127, 30), D("DRV", F.PCT, 0, 127, 0), D("KTR", F.PCT, 0, 127, 64)],
       presets: [P("SAW LEAD", [0, 12, 64, 0, 90, 30, 10, 64], [4, 70, 100, 50], 1, 4), P("SOFT PAD", [0, 20, 64, 4, 60, 10, 0, 32], [80, 90, 110, 95], 0, 5),
         P("SQR BASS", [1, 0, 0, 0, 50, 70, 40, 64], [0, 60, 40, 30], 1, 2), P("PWM STR", [4, 8, 40, 0, 75, 20, 0, 48], [60, 80, 110, 85], 0, 5),
@@ -1504,7 +1566,7 @@ function makeMockDevice(opt = {}) {
       presets: [P("CHOP", [0, 2, 0, 0, 0, 0, 127, 127], [0, 127, 127, 30], 0, 9), P("STUTTER", [0, 1, 0, 0, 1, 0, 90, 110], [0, 127, 127, 12], 0, 10)] },
   ];
   const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_OWN = FM6.FACTORY_PK.length, DRUM_E = ENG.findIndex((e) => e.name === "DRUM");
-  /* factory PATTERNS[] (engines.c; the device loads them from SEQ > PATTERNS, presets only suggest one): absolute
+  /* factory PATTERNS[] (engines.c; the device loads them from SAVE > PHRASES, presets only suggest one): absolute
      notes, 0 rest; flags 1 accent, 2 slide, 4 tie (holds the previous note) */
   const T_ = 4;
   const PATTERNS = [
@@ -1526,7 +1588,11 @@ function makeMockDevice(opt = {}) {
   TP.push(E("CHRD", ["OFF", "DIA3", "DIA7", "MAJ", "MIN", "DOM7", "MAJ7", "MIN7", "SUS4", "POW"], 0),   /* the chord keys 81, 82 */
     E("VOIC", ["CLOSE", "OPEN", "INV1", "INV2", "+OCT"], 0));
   for (const l of ["KICK", "SNARE", "CLAP", "HATCL", "HATOP", "TOM", "RIM", "BELL"]) TP.push(D(l, F.PCT, 0, 127, 127));   /* 83..90: DRUM lane levels */
-  const P_COUNT = 99, G_COUNT = 27, NSTEP = 64, P_E0 = 91, G_ENGSEL = 20, P_SLCR = 45;
+  TP.push(E("SYNC", ["OFF", "4BAR", "2BAR", "1/1", "1/2", "1/4", "1/8", "8T", "1/16", "16T", "1/32"], 0),   /* 1.2: LFO 2 (91..93) */
+    E("TRIG", ["NOTE", "FREE"], 0), E("POL", ["BI", "UNI"], 0), E("QNTZ", ["OFF", "ON"], 1),   /* and QUANTIZE (94) */
+    D("SPRD", F.PCT, 0, 127, 0));   /* SPREAD (95, #148) */
+  const P_COUNT = 104, G_COUNT = 27, NSTEP = 64, P_E0 = 96, G_ENGSEL = 20, P_SLCR = 45;
+  const MOTION_MAX = 128;                           /* motion records shared by the tracks (1.2; 64 before) */
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const enumOrig = (d, v) => d.fmt === F.ENUM && d.names ? aliasOf(d.names, v - d.min) + d.min : v;   /* params.c enum_orig */
   /* four tracks (firmware v3), four synth parts (1.0); engine / preset / p / step below are the selected track's */
@@ -1629,12 +1695,15 @@ function makeMockDevice(opt = {}) {
   };
   const ratchetOn = () => !!syncCaps() && !opt.noRatchet;   /* (INFO 52 01 04, after the sync tag) */
   const locksOn = () => ratchetOn() && !opt.noLocks;          /* (INFO 4C 01 01, after the ratchet's: 1.1) */
-  const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); if (ratchetOn()) b(x.ratchet ?? 1); };
+  const capOn = () => locksOn() && !opt.v11;                  /* (INFO 41 01 00 01, 54 01 16, 57 01 4: 1.2 / 1.4; opt.v11: as 1.1.5) */
+  const motionMax = () => (capOn() ? 128 : 64);
+  const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); if (ratchetOn()) b(x.ratchet ?? 1); if (capOn()) b((x.nudge ?? 0) + 8); };
   function stepIn(x, a) {                         /* editor.c ed_step_put: n, 4 notes, time, flags, vel [, hits (3) [, chance [, ratchet]]] */
     x.n = Math.min(4, a[0]); x.notes = a.slice(1, 5); x.time = Math.min(2, a[5]); x.flags = a[6] & 3; x.vel = a[7];
     if (a.length >= 11) { x.hit = a[8] | (a[10] & 1) << 7; x.acc = (a[9] | (a[10] & 2) << 6) & x.hit; }
     if (a.length >= 12) x.chance = Math.min(100, a[11]);
     if (a.length >= 13 && ratchetOn()) x.ratchet = Math.max(1, Math.min(4, a[12]));
+    if (a.length >= 14 && capOn()) x.nudge = a[13] - 8;   /* (1.2: nudge + 8, 0..15; a byte above: refused before) */
   }
   /* a few user presets to start with, each with its preset's suggested pattern stored (as UP_STORE would) */
   [[0, 0, 0, "MY LEAD"], [1, FM6_E, 1, "GLASS BELL"], [2, 2, 3, "PHASE RESO"], [5, 3, 2, "8BIT ARP"]].forEach(([slot, e, p, name]) => {
@@ -1646,7 +1715,7 @@ function makeMockDevice(opt = {}) {
   /* the power-on sounds (engines.c TRK_DEF): ACID, PAD, PULSE LD, DRUM KIT */
   [[1, FM6_E, 4], [2, 3, 0], [3, 10, 0], [0, 0, 4]].forEach(([i, e, p]) => { st.sel = i; setEngine(e); applyPreset(p); });
   /* the device powers on with its sequencers empty; the mock starts as a little demo to look at: track 1 with
-     the ACID pattern, track 4 with BEAT (as SEQ > PATTERNS would load them), pads left, lead right */
+     the ACID pattern, track 4 with BEAT (as SAVE > PHRASES would load them), pads left, lead right */
   st.sel = 3; loadPattern(11);
   st.sel = 0; loadPattern(0);
   st.tracks[1].p[39] = -24; st.tracks[2].p[39] = 20; st.tracks[2].p[0] = 92;
@@ -1673,6 +1742,7 @@ function makeMockDevice(opt = {}) {
         const start = a[0], n = Math.max(0, Math.min(a[1], UP.LIST_MAX, NB - start));
         b(start); b(n); b(NB);
         for (let i = start; i < start + n; i++) { const u = st.bank[i]; b(u ? 1 : 0); b(u ? u.engine : 0); s(u ? u.name : ""); }
+        if (capOn()) for (let i = start; i < start + n; i++) b(st.bank[i] ? st.bank[i].category || 0 : 0);   /* (1.2) */
         break;
       }
       case CMD.UP_GET: {
@@ -1688,6 +1758,7 @@ function makeMockDevice(opt = {}) {
           for (let i = 0; i < UP.PAT; i++) { const x = u ? u.pattern[i] : [0, 0]; b(x[0]); b(x[1]); }
           b(0);
         }
+        if (capOn()) b(u ? u.category || 0 : 0);   /* (1.2: the category) */
         break;
       }
       case CMD.UP_PUT: {
@@ -1700,7 +1771,9 @@ function makeMockDevice(opt = {}) {
           for (let i = 0; i < P_COUNT; i++) p.push(r.v());
           for (let i = 0; i < UP.PAT; i++) raw.push([r.b(), r.b()]);
           const tail = a.length - r.i;
-          if (tail !== 0 && (tail !== 1 + UP.PAT || a[r.i] > 1)) throw new Error("bad preset extension");
+          if (tail !== 0 && ((tail !== 1 + UP.PAT && !(tail === 2 + UP.PAT && capOn())) || a[r.i] > 1)) throw new Error("bad preset extension");
+          const category = tail === 2 + UP.PAT ? a[a.length - 1] : 0;
+          if (category > 8) throw new Error("bad category");
           if (tail && a[r.i] === 1) {              /* kind 1: a complete drum grid */
             r.b();
             grid = raw.map(([h, c]) => { const x = r.b(), hit = h | (x & 1) << 7; return [hit, (c | (x & 2) << 6) & hit]; });
@@ -1710,7 +1783,7 @@ function makeMockDevice(opt = {}) {
             const saved = st.engine;                /* values clamped to the ranges of that engine */
             const pc = fromPerc({ engine, p }, ENG.map((x) => x.name), P_E0);   /* SAMPLE PERC: DRUM (upreset.c up_migrate) */
             st.engine = pc ? pc.engine : engine;
-            st.bank[slot] = { engine: st.engine, name, p: (pc ? pc.p : p).map((x, i) => { const d = desc(0, i); return clamp(x, d.min, d.max); }), pattern, grid };
+            st.bank[slot] = { engine: st.engine, name, p: (pc ? pc.p : p).map((x, i) => { const d = desc(0, i); return clamp(x, d.min, d.max); }), pattern, grid, category };
             st.engine = saved;
           }
         } catch (e) { rc = 1; }
@@ -1769,7 +1842,9 @@ function makeMockDevice(opt = {}) {
         const i = a[0], m = MENU[i], names = m && (m.names || st.palettes);
         b(i);
         if (!m) { b(127); break; }
-        b(m.id); b(0); v(m.id === 0 ? st.palette : st.menu[i]); v(0); v(names.length - 1); s(m.name); names.forEach(s);
+        b(m.id); b(m.kind || 0); v(m.id === 0 ? st.palette : m.g != null ? st.g[m.g] : st.menu[i]);
+        if (m.kind === 1) { v(m.min); v(m.max); s(m.name); s(m.unit); }   /* (1.2 TUNE: a number, its unit) */
+        else { v(0); v(names.length - 1); s(m.name); names.forEach(s); }
         if (!opt.noMenuTabs) { b(m.tab); s(MENU_TABS[m.tab]); }   /* (1.0.5: the tab; opt.noMenuTabs: as 1.0.4) */
         break;
       }
@@ -1777,9 +1852,9 @@ function makeMockDevice(opt = {}) {
         if (opt.noMenu || opt.noFm6 || !syncCaps() || a.length !== 3) return null;
         const i = MENU.findIndex((m) => m.id === a[0]), m = MENU[i], val = v14dec(a[1], a[2]);
         if (!m) { b(1); b(a[0]); v(val); break; }
-        const x = Math.max(0, Math.min((m.names || st.palettes).length - 1, val));
-        if (m.id === 0) st.palette = x; else st.menu[i] = x;
-        b(opt.noFlash ? 3 : opt.deferSettings ? 4 : 0); b(m.id); v(x);
+        const x = m.kind === 1 ? Math.max(m.min, Math.min(m.max, val)) : Math.max(0, Math.min((m.names || st.palettes).length - 1, val));
+        if (m.id === 0) st.palette = x; else if (m.g != null) st.g[m.g] = x; else st.menu[i] = x;
+        b(m.g != null ? 0 : opt.noFlash ? 3 : opt.deferSettings ? 4 : 0); b(m.id); v(x);   /* (the project's: rc 0) */
         break;
       }
       case CMD.FAV_GET: case CMD.FAV_SET: {
@@ -1805,20 +1880,26 @@ function makeMockDevice(opt = {}) {
         else if (a[1] === 3 || a[1] === 4 || a[1] === 5) {
           /* src/motion.c motion_param / motion_set_event: a step < 64, a parameter that can be recorded, its range */
           const id = a[3], rec = id < P_COUNT && (id <= 16 || (id >= 33 && id <= 36) || id === 38 || id === 39 || id === 44
-            || (id >= 61 && id <= 80) || id >= P_LANES[0]);   /* (the lane levels, E0..E7) */
+            || (id >= 61 && id <= 80) || (id >= P_LANES[0] && id <= P_LANES[7]) || id >= 95);   /* (the lane levels,
+                                                                     * SPREAD, E0..E7; not 1.2's LFO 2 / QUANTIZE 91..94) */
           const at = m.events.findIndex(e => e.step === a[2] && e.param === a[3]);
           if (a[2] >= NSTEP || !rec) rc = 1;
           else if (a[1] === 4) { if (at >= 0) m.events.splice(at, 1); }
           else {
             const val = v14dec(a[4], a[5]), d = id >= P_E0 ? ENG[track.engine].edit[id - P_E0] : TP[id];
             if (!d || val < Math.max(-64, d.min) || val > Math.min(127, d.max)) rc = 1;
-            else if (at < 0 && st.tracks.reduce((n,t) => n + t.motion.events.length, 0) >= 64) rc = 2;
+            else if (at < 0 && st.tracks.reduce((n,t) => n + t.motion.events.length, 0) >= motionMax()) rc = 2;
             else { const e = {step:a[2],param:a[3],value:val,lock:a[1] === 5}; if (at >= 0) m.events[at] = e; else m.events.push(e); }
           }
         }
-        [a[0],rc,+m.on,m.events.length,64].forEach(b);
-        m.events.forEach(e => {b(e.step);b(e.param);v(e.value);});
-        if (a[1] >= 5) m.events.forEach(e => b(e.lock ? 1 : 0));   /* (1.1: the kinds after ops 5..7) */
+        /* 1.2 (128 records): op 8 lists them all, count and max as two 7-bit bytes, then the kinds; the others as before
+           1.2 (max 64, at most the first 64; ops 5..7 then the kinds) */
+        if (a[1] === 8 && (a.length !== 2 || !capOn())) return null;
+        const list = a[1] === 8 ? m.events : m.events.slice(0, 64), mx = motionMax();
+        if (a[1] === 8) [a[0], rc, +m.on, list.length & 127, list.length >> 7, mx & 127, mx >> 7].forEach(b);
+        else [a[0],rc,+m.on,list.length,64].forEach(b);
+        list.forEach(e => {b(e.step);b(e.param);v(e.value);});
+        if (a[1] >= 5) list.forEach(e => b(e.lock ? 1 : 0));   /* (the kinds after ops 5..8) */
         break;
       }
       case CMD.INFO:
@@ -1828,7 +1909,9 @@ function makeMockDevice(opt = {}) {
         if (!opt.legacy && !opt.v3 && !opt.v5) {
           b(16);
           if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noBackup) { b(0x42); b(1); b(3); } if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(0); }
-            if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); if (!opt.noMenu) { b(0x4E); b(1); b(MENU.length); } } if (ratchetOn()) { b(0x52); b(1); b(4); if (locksOn()) { b(0x4C); b(1); b(1); } } } }   /* (FM6 v2: no bank, preset patches; MENU settings; RATCH) */
+            if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); if (!opt.noMenu) { b(0x4E); b(1); b(MENU.length); } } if (ratchetOn()) { b(0x52); b(1); b(4); if (locksOn()) { b(0x4C); b(1); b(1);
+              if (capOn()) { b(0x41); b(1); b(0); b(1); b(0x54); b(1); b(16); if (!opt.noLanes) { b(0x57); b(1); b(NTRK); } } } } } }   /* (FM6 v2: no bank, preset
+              patches; MENU settings; RATCH; locks; 1.2: 128 records, nudge, song lanes) */
         }
         break;
       case CMD.GET: case CMD.SET: {
@@ -1937,25 +2020,32 @@ function makeMockDevice(opt = {}) {
         }
         b(st.engine); b(st.preset);
         break;
-      case CMD.SONG: {
-        if (!a.length || a[0] > 3) return null;
+      case CMD.SONG: {                              /* (sections: { slots: [4 x 0..4], repeat }; song_chain.c) */
+        const lanes = !opt.noLanes && a[0] >= 4, op = a[0] & 3, w = lanes ? 5 : 2;
+        if (!a.length || a[0] > (opt.noLanes ? 3 : 7) || (op !== 1 && a.length !== 1)) return null;
         let rc = 0;
-        if (a[0] === 1) {
-          const rows = Array.from({ length: a[1] || 0 }, (_, i) => ({ slot: a[2 + 2 * i], repeat: a[3 + 2 * i] }));
-          if (a.length < 2 || a[1] > 16 || a.length !== 2 + 2 * a[1] || rows.some((r) => r.slot > 3 || r.repeat < 1 || r.repeat > 16)) rc = 1;
+        if (op === 1) {
+          const rows = Array.from({ length: a[1] || 0 }, (_, i) => lanes ? { slots: a.slice(2 + w * i, 6 + w * i), repeat: a[6 + w * i] }
+            : { slots: [0, 1, 2, 3].map(() => a[2 + w * i]), repeat: a[3 + w * i] });
+          if (a.length < 2 || a[1] > 16 || a.length !== 2 + w * a[1] ||
+              rows.some((r) => r.slots.some((x) => x > (lanes ? 4 : 3)) || r.repeat < 1 || r.repeat > 16)) rc = 1;
           else if (st.chainPlaying) rc = 2;
           else st.songRows = rows;
-        } else if (a[0] === 2) {
+        } else if (op === 2) {
           if (st.chainPlaying) rc = 2;
           else if (!st.songRows.length) rc = 1;
           else {
-            const missing = st.songRows.find((r) => !st.slots[r.slot]);
-            if (missing) rc = 3 + missing.slot;
+            const missing = st.songRows.flatMap((r) => r.slots).find((x) => x < 4 && !st.slots[x]);
+            if (missing !== undefined) rc = 3 + missing;
             else { st.chainPlaying = true; st.chainRow = 0; st.chainRemaining = st.songRows[0].repeat; }
           }
-        } else if (a[0] === 3) st.chainPlaying = false;
+        } else if (op === 3) st.chainPlaying = false;
         b(a[0]); b(rc); b(st.songRows.length); b(st.chainPlaying ? 1 : 0); b(st.chainRow); b(st.chainRemaining);
-        st.songRows.forEach((r) => { b(r.slot); b(r.repeat); });
+        st.songRows.forEach((r) => {
+          if (lanes) r.slots.forEach(b);
+          else { const c = r.slots.find((x) => x < 4); b(c === undefined ? 0 : c); }   /* (v6: the clock lane's) */
+          b(r.repeat);
+        });
         break;
       }
       case CMD.PROJECT: {
@@ -2047,8 +2137,8 @@ function makeMockDevice(opt = {}) {
         let rc = 0;
         if (op === 0) {                                /* begin: id, size, crc */
           const size = bkR(a, 2), crc = bkR(a, 7);
-          const ok = id <= 9 && (id < 8 || !opt.noFm6) && (id === 0 ? [3648, 3584, 3388].includes(size) : id === 1 ? size === BK_SETTINGS
-            : id <= 5 ? [0, 3648, 3584, 3388].includes(size) : id <= 7 ? size <= 3840 : id === 8 ? size === 0 || size === 3472
+          const ok = id <= 9 && (id < 8 || !opt.noFm6) && (id === 0 ? [3840, 3648, 3584, 3388].includes(size) : id === 1 ? size === BK_SETTINGS
+            : id <= 5 ? [0, 3840, 3648, 3584, 3388].includes(size) : id <= 7 ? size <= 3840 : id === 8 ? size === 0 || size === 3472
             : size === 0 || size === 3728);   /* (8: an older archive's bank, moved into the user presets; 9: their patches) */
           if (!ok || a.length !== 12) rc = 1;
           else { bk.snap = null; bk.put = { id, size, crc, buf: new Uint8Array(size), next: 0 }; }
@@ -2090,9 +2180,9 @@ function makeMockDevice(opt = {}) {
   function bkObject(id) {
     if (id >= 32) { const u = st.smp[id - 32]; return u.zones ? u.flash.slice(0, SMP.DATA_OFF + u.len) : new Uint8Array(0); }
     const had = bk.objs.get(id);
-    if (id === 0) return had || fill(3648, 1);
+    if (id === 0) return had || fill(3840, 1);   /* (FUN10, 1.2) */
     if (id === 1) return had || fill(BK_SETTINGS, 2);
-    if (id <= 5) return st.slots[id - 2] ? had && had.length ? had : fill(3648, id) : new Uint8Array(0);
+    if (id <= 5) return st.slots[id - 2] ? had && had.length ? had : fill(3840, id) : new Uint8Array(0);
     if (id <= 7) { const used = st.bank.some((x, k) => x && (id === 6 ? k < 16 : k >= 16)); return used ? had && had.length ? had : fill(1200, id) : new Uint8Array(0); }
     if (id === 8) return new Uint8Array(0);
     return had || (st.bank.some((x) => x && x.fm6) ? fill(3728, 9) : new Uint8Array(0));
@@ -2271,6 +2361,6 @@ export {
   parseWav, resample, pyRound, normalize, FADE, takeSample, zoomView, autoTrim, rootFromName, buildSlot,
   LIB, paramKeys, sameKeys, remapParams, tailParams, patNorm, patternFromSteps, stepsFromPattern, patternUsed, gridFromSteps,
   cleanPatch, libraryFile, readLibraryFile, FLASH_OPT, bank, capturePatch, TRACK_OWN, P_CHORD, P_LANES, trackOwn, auditionPatch,
-  startWatch, mixer, FM6, FM4, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice,
+  startWatch, mixer, FM6, FM4, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice, parseMotionAll,
   readDevicePreferences, aliasOf, divLength, enumShown, ENGINE_ORDER, engineOrder, devicePresetRows, MENU, MENU_TABS, readDeviceMenu,
 };
