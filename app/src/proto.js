@@ -29,7 +29,7 @@
 // - FUN10, before its release: P_COUNT 104, P_E0 96: SPRD (95, SPREAD, #148, 0..127 PCT, 0 = as before) before the
 //   engine values; the matrix's SRC gained S&H SLEW (9, 10), DST DEPTH (20), ANALOG's WAVE SYNC SUB (5, 6): appended
 // - 1.5: P_COUNT 111, P_E0 103 (FUN10 as it was): the INSERT, INSRT (96, OFF SOFT HARD FOLD FUZZ CRUSH PHASR FLANG CHOR)
-//   INS A..C (97..99, their meaning by INSRT: docs/research/webapp-1.5-insert.md) MIX (100), then TYPE (101, ANALOG's
+//   INS A..C (97..99, their meaning by INSRT: params.c ins_desc) MIX (100), then TYPE (101, ANALOG's
 //   filter LP BP HP, #104) and ESYNC (102, ENV SYNC OFF ON, #175: ATK DEC REL as note values, params.c ESYNC_NAMES),
 //   before the engine values; MOTION records SPRD (95) and 96..100 as the firmware does (not TYPE, ESYNC); FUN10 of
 //   104 load by count

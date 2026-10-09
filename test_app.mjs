@@ -882,7 +882,7 @@ function dir0() { return mkdtempSync(join(tmpdir(), "felucca-tokens-")); }
     const bad = own.filter((f) => {
       const x = readFileSync(f, "utf8").replace(/"exported": "\d{4}-\d\d-\d\dT[^"]*"/g, "");   /* (a sample file's timestamp in the mock) */
       const notes = (x.match(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|#[^\n]*/g) || []).join("\n");   /* (R numbers: in comments; "R1" is an EG rate) */
-      return /\bmemos\b|\b20\d\d-\d\d-\d\d\b|\/Users\/|fm-1-research|\bscratch\b/.test(x) || /\bR\d{1,2}\b/.test(notes);
+      return /\bmemos\b|\b20\d\d-\d\d-\d\d\b|\/Users\/|fm-1-research|\bscratch\b|docs\/research/.test(x) || /\bR\d{1,2}\b/.test(notes);
     });
     ok(!bad.length, "page: no memos, R numbers, dates or private paths in what ships" + (bad.length ? " (" + bad.map((f) => f.split("/").pop()).join(", ") + ")" : ""));
   }
