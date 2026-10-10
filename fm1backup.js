@@ -108,6 +108,48 @@ export async function captureBackup(request, firmware, onProgress = () => {}) {
   const file = { format: "felucca-backup", version: 1, firmware, created: new Date().toISOString(), objects };
   readBackup(file); return file;
 }
+// One object of the device (a project slot: id 2..5) read as a backup reads it -> {id, size, crc, bytes}
+export async function captureObject(request, id) {
+  const o = bkManifest(await request([BACKUP_CMD.LIST, []], { timeout: 3000, retries: 0 })).find((x) => x.id === id);
+  if (!o) throw new Error("No such backup object");
+  const bytes = new Uint8Array(o.size);
+  for (let off = 0; off < o.size; off += BACKUP_CHUNK) {
+    const size = Math.min(BACKUP_CHUNK, o.size - off);
+    const a = await request([BACKUP_CMD.GET, [o.id, ...bkU32(off), size & 127, size >>> 7]], { timeout: 1000, retries: 1 });
+    bkCheck(a[1]);
+    if (a[0] !== o.id || bkR32(a, 2) !== off || (a[7] | a[8] << 7) !== size) throw new Error("Unexpected backup reply");
+    bytes.set(bkUnpack(a.slice(9), size), off);
+  }
+  if (bkCrc(bytes) !== o.crc) throw new Error("The device changed during backup. Try again while stopped.");
+  return { ...o, bytes };
+}
+// One object written as a restore writes it (begin, data, commit; an abort on a refused chunk)
+export async function putObject(request, id, bytes) {
+  const ask = async (r, o = {}) => request(r, { timeout: 4000, retries: 0, ...o });
+  const put = async (args) => { const a = await ask([BACKUP_CMD.PUT, args]); bkCheck(a[2]); return a; };
+  await put([0, id, ...bkU32(bytes.length), ...bkU32(bkCrc(bytes))]);
+  try {
+    for (let off = 0; off < bytes.length; off += BACKUP_CHUNK) await put([1, id, ...bkU32(off), ...bkPack(bytes.subarray(off, off + BACKUP_CHUNK))]);
+    await put([2, id]);
+  } catch (e) { await put([3, id]).catch(() => {}); throw e; }
+}
+// A single project's file: the backup object of one project slot (its bytes as a backup holds them)
+const PROJECT_SIZES = [3840, 3648, 3584, 3388];
+export function projectFile(firmware, slot, o) {
+  return { format: "felucca-project", version: 1, firmware, created: new Date().toISOString(), slot,
+    object: { size: o.bytes.length, crc: bkCrc(o.bytes), data: bkBase64(o.bytes) } };
+}
+// a project file (text or object) checked whole -> {slot, size, crc, bytes}
+export function readProject(file) {
+  if (typeof file === "string") { try { file = JSON.parse(file); } catch (_) { throw new Error("Not a Felucca project file"); } }
+  const o = file && file.object;
+  if (!file || file.format !== "felucca-project" || file.version !== 1 || !o || typeof o.data !== "string" ||
+      !PROJECT_SIZES.includes(o.size) || !Number.isInteger(o.crc)) throw new Error("Not a Felucca project file");
+  const bytes = Uint8Array.from(atob(o.data), (c) => c.charCodeAt(0));
+  if (bytes.length !== o.size || bkCrc(bytes) !== o.crc) throw new Error("Project file checksum mismatch");
+  return { slot: file.slot, size: o.size, crc: o.crc, bytes, firmware: file.firmware };
+}
+
 // The projects of a backup (ids 0 the current one, 2..5 A..D) that use a step condition (1.5.5: 1:2 .. !FILL): FUN10
 // ("FUNA", 3840 bytes) whose steps' chance byte (the 9th of each, 64 steps a track after its np parameters, engine and
 // preset, from byte 68) holds 102..112. Firmware without conditions (no INFO 4B 01) cannot open them. -> their ids

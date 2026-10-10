@@ -6,7 +6,7 @@
 // and the edits. No DOM: the page listens (on) and calls; the tests drive it against the mock device.
 // The behaviour is editor.html's (connect, load, onPush, keepAlive, the 400 ms poll, selfLoad), moved here.
 
-import { captureBackup, conditionalProjects, readBackup, restoreBackup } from "../../fm1backup.js";
+import { captureBackup, captureObject, conditionalProjects, projectFile, putObject, readBackup, readProject, restoreBackup } from "../../fm1backup.js";
 import { CMD, F, FLASH_OPT, FM6, fm6Bank, midiLearn, Link, parseMotionAll, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDeviceMenu, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
 
 export const isFelucca = (p) => /felucca/i.test(p.name || "") && p.state !== "disconnected";
@@ -482,6 +482,27 @@ export class Device {
   backupTooNew(archive) {
     const proj = (archive.objects || []).filter((o) => o.id <= 5 && o.id !== 1 && o.size === 3840);
     return (!this.info.motionCap && proj.length > 0) || proj.some((o) => o.bytes && String.fromCharCode(...o.bytes.slice(0, 4)) === "FUNA" && o.bytes[66] > this.info.pcount);
+  }
+  /* a single project (Discussion #70): slot k (0..3 = A..D, object 2 + k) to a file, a file to slot k; the backup's
+     object as it is (BACKUP_GET / BACKUP_PUT: INFO 42 bit 0 / bit 1) */
+  projectExport(k) {
+    return this.op(async () => projectFile(this.info.version, k, await captureObject((r, o) => this.rq(r, o), 2 + k)));
+  }
+  projectCheck(text) { return readProject(text); }
+  /* what this device cannot take of it: "newer" (a FUN10 here without it, or more parameters), "cond" (step conditions,
+     no INFO 4B 01), or "" */
+  projectRefusal(p) {
+    const a = { objects: [{ id: 2, size: p.size, bytes: p.bytes }] };
+    return this.backupTooNew(a) ? "newer" : this.backupConditional(a).length ? "cond" : "";
+  }
+  projectImport(k, p) {
+    if (this.projectRefusal(p)) return Promise.resolve(false);
+    return this.op(async () => {
+      await putObject((r, o) => this.rq(r, o), 2 + k, p.bytes);
+      try { this.slotUsed[k] = parse[CMD.PROJECT](await this.rq(req.project(2, k))).used; } catch (e) { if (e.message === "closed") throw e; }
+      this.emit("projects", this.slotUsed);
+      return true;
+    });
   }
   /* 1.5.5: the backup's projects this device cannot open (a step condition; no INFO 4B 01 here) -> their ids */
   backupConditional(archive) { return this.info.cond ? [] : conditionalProjects(archive); }

@@ -36,6 +36,19 @@ export function projectScreen(root, ui) {
     try { const r = await fn(); if (done) done(r); } finally { busy = false; draw(); }
   }
 
+  /* a project file into slot importTo: checked whole, refused when this firmware cannot open it, an overwrite asked */
+  let importTo = 0;
+  const projInput = el("input", { type: "file", accept: ".json,application/json", hidden: true });
+  projInput.addEventListener("change", async () => {
+    const f = projInput.files[0], k = importTo; projInput.value = "";
+    if (!f || !dev) return;
+    let p;
+    try { p = dev.projectCheck(await f.text()); } catch (e) { ui.say(`${f.name}: ${e.message}`, "warn"); return; }
+    const no = dev.projectRefusal(p);
+    if (no) { ui.say(`${f.name}: ${t(no === "cond" ? "condProjectNo" : "backupNewer")}`, "warn"); return; }
+    if (!(await ui.confirm(dev.slotUsed[k] ? `${t("import")} → ${L(k)} (${t("overwrite")})?` : `${t("import")} → ${L(k)}?`))) return;
+    run(() => dev.projectImport(k, p), (ok) => { if (ok) ui.say(tf("didImportProj", L(k))); });
+  });
   function projects() {
     const slots = dev.slotUsed.map((u, k) => el("div", { class: "slot" + (u ? "" : " empty"), role: "group", "aria-label": `PROJECT ${L(k)}` },
       el("span", { class: "big", text: L(k) }),
@@ -48,8 +61,15 @@ export function projectScreen(root, ui) {
         el("button", { type: "button", class: "btn", disabled: busy, onclick: async () => {
           if (!(await ui.confirm(u ? `SAVE TO ${L(k)}?` : `SAVE ${L(k)}?`))) return;
           run(() => dev.project(1, k), (r) => { if (r) ui.say(tf("didSave", L(k))); });
-        } }, ic("symbol_download_as"), t("save")))));
-    return el("section", { class: "card wide" }, el("h2", {}, ic("symbol_folder_open"), el("span", { text: "PROJECTS" })), el("div", { class: "slots" }, ...slots));
+        } }, ic("symbol_download_as"), t("save"))),
+      /* one project to a file and back (Discussion #70: the backup's object of that slot) */
+      dev.backupCaps() & 3 ? el("div", { class: "acts" },
+        dev.backupCaps() & 1 ? el("button", { type: "button", class: "btn", disabled: busy || !u, onclick: () =>
+          run(() => dev.projectExport(k), (f) => { if (f) { ui.download(`Felucca-project-${L(k)}-${new Date().toISOString().slice(0, 10)}.json`, f); ui.say(tf("didExport", L(k))); } }) },
+          ic("symbol_download"), t("export")) : null,
+        dev.backupCaps() & 2 ? el("button", { type: "button", class: "btn", disabled: busy, onclick: () => { importTo = k; projInput.click(); } },
+          ic("symbol_upload"), t("import")) : null) : null));
+    return el("section", { class: "card wide" }, el("h2", {}, ic("symbol_folder_open"), el("span", { text: "PROJECTS" })), el("div", { class: "slots" }, ...slots), projInput);
   }
 
   function song() {

@@ -210,6 +210,29 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   ok(proto.fmtValue(bip, -64)[0] === "-100" && proto.fmtValue(bip, 63)[0] === "+100" && proto.fmtValue(bip, 0)[0] === "0", "1.5.5: bipolar values read -100 .. +100");
 }
 {
+  /* #70: one project to a file and back (the backup's object of its slot): exported, checked, imported into another slot;
+     a file this firmware cannot open (step conditions without INFO 4B, a FUN10 here without it) refused, nothing sent */
+  const { readProject } = await import("./fm1backup.js");
+  const m = proto.makeMockDevice({ auto: false }), d = new Device(m.access);
+  await d.open();
+  const k = d.slotUsed.indexOf(1), to = d.slotUsed.indexOf(0) >= 0 ? d.slotUsed.indexOf(0) : (k + 1) % 4;
+  const file = await d.projectExport(k);
+  const p = readProject(JSON.stringify(file));
+  ok(file.format === "felucca-project" && file.slot === k && p.size === file.object.size && [3840, 3648, 3584, 3388].includes(p.size), "#70: a project exported (its slot's backup object)");
+  ok((await d.projectImport(to, p)) && d.slotUsed[to] === 1, "#70: imported into another slot (it reads used)");
+  let bad = ""; try { readProject(JSON.stringify({ ...file, object: { ...file.object, crc: file.object.crc ^ 1 } })); } catch (e) { bad = e.message; }
+  ok(/checksum/.test(bad), "#70: a damaged file is refused before anything is sent");
+  d.close();
+  const fun = (cond) => { const b = new Uint8Array(3840); b.set([0x46, 0x55, 0x4E, 0x41]); b[66] = 111; if (cond) b[68 + 111 + 2 + 8] = 104; return b; };
+  const om = proto.makeMockDevice({ auto: false, noCond: true }), o = new Device(om.access);
+  await o.open();
+  ok(o.projectRefusal({ size: 3840, bytes: fun(true) }) === "cond" && o.projectRefusal({ size: 3840, bytes: fun(false) }) === ""
+     && (await o.projectImport(0, { size: 3840, bytes: fun(true) })) === false, "#70: a project with step conditions is not sent to firmware without them");
+  o.info.pcount = 104;
+  ok(o.projectRefusal({ size: 3840, bytes: fun(false) }) === "newer", "#70: a 1.5 project (111) is not sent to 1.4 firmware (104)");
+  o.close();
+}
+{
   /* 1.5.5: a backup's projects with step conditions, found in FUN10 (the chance byte 102..112), skipped on firmware
      without conditions (only when asked: the restore leaves them out, the rest goes as before) */
   const { conditionalProjects } = await import("./fm1backup.js");
