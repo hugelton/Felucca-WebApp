@@ -185,6 +185,31 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   o.close();
 }
 {
+  /* 1.5.5: a step's condition (INFO 4B 01 0B, a byte after the nudge): written, read; a chance alone keeps it at 100
+     and clears it otherwise; older firmware gets none; bipolar values read -100 .. +100 */
+  const m = proto.makeMockDevice(), d = new Device(m.access);
+  await d.open();
+  const N = { n: 1, notes: [60, 0, 0, 0], time: 0, flags: 0, vel: 96, hit: 0, acc: 0 };
+  const w = await d.writeStep(6, { ...N, chance: 100, cond: 10 });
+  ok(d.info.cond === 11 && w && w.cond === 10 && w.chance === 100 && m.state.step[6].cond === 10 && proto.STEP_CONDS[w.cond - 1] === "FILL",
+    "1.5.5: a condition (FILL) written with the nudge before it, read back (chance 100)");
+  await d.rq(proto.req.stepSet(6, { ...N, chance: 100 }));
+  ok(m.state.step[6].cond === 10, "1.5.5: a write of chance 100 without the byte keeps the step's condition");
+  await d.rq(proto.req.stepSet(6, { ...N, chance: 40 }));
+  ok(m.state.step[6].cond === 0 && m.state.step[6].chance === 40, "1.5.5: .. another chance replaces it");
+  await d.writeStep(6, { ...N, chance: 100, cond: 3 });
+  await d.clearSequence();
+  ok(m.state.step[6].cond === 0, "1.5.5: a full clear clears the conditions");
+  d.close();
+  const om = proto.makeMockDevice({ noCond: true }), o = new Device(om.access);
+  await o.open();
+  const w2 = await o.writeStep(6, { ...N, chance: 100, cond: 10 });
+  ok(!o.info.cond && w2 && w2.cond === 0 && !om.state.step[6].cond, "1.5.5 editor on 1.5.1 firmware (no 4B): no condition sent");
+  o.close();
+  const bip = { fmt: proto.F.BIPCT, min: -64, max: 63 };
+  ok(proto.fmtValue(bip, -64)[0] === "-100" && proto.fmtValue(bip, 63)[0] === "+100" && proto.fmtValue(bip, 0)[0] === "0", "1.5.5: bipolar values read -100 .. +100");
+}
+{
   /* #203: a slot's RATE and BITS (editor only: the header's per-zone rate, a crush before the ADPCM); the defaults
      are what the editor always wrote */
   const S = await import("./app/src/samples.js");

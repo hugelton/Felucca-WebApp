@@ -72,6 +72,7 @@ export function settingsScreen(root, ui) {
       return card(name, MENU_TAB_ICON[name] || "control_menu_lines", el("div", { class: "rows" }, ...its.map(row)));
     });
   }
+  const trackRoute = () => { const d = dev.gdesc[14]; return !!(d && d.names && d.names[dev.dump.g[14] - d.min] === "TRACK"); };
   function row(m) {
     const d = m.kind === 0 ? { fmt: 8, min: m.min, max: m.max, def: m.min, label: m.name, unit: "", names: m.names }
       : { fmt: 0, min: m.min, max: m.max, def: m.min, label: m.name, unit: m.unit, names: [] };
@@ -79,6 +80,8 @@ export function settingsScreen(root, ui) {
       if (m.name === "USB SERIAL" && v !== m.value && !(await ui.confirm(t("usbQ")))) { r.update(m.value, false); return; }
       ui.prefResult(await dev.menuSet(m.id, v));
     }, { icon: MENU_ICON[m.name] || null });   /* (no icon: the device's rows have none from 1.0.5) */
+    /* (1.5.5: T1..T4 CHANNEL route only with MIDI IN = TRACK: dim otherwise, as the device draws them) */
+    if (m.id >= 26 && m.id <= 29) r.el.classList.toggle("dim", !trackRoute());
     menuRows.set(m.id, r);
     return r.el;
   }
@@ -163,7 +166,10 @@ export function settingsScreen(root, ui) {
       grid.append(editor(), system());
       root.replaceChildren(grid);
     },
-    param(s, id, v) { if (s === 1 && rows.has(id)) rows.get(id).update(v); },
+    param(s, id, v) {
+      if (s === 1 && rows.has(id)) rows.get(id).update(v);
+      if (s === 1 && id === 14) for (const k of [26, 27, 28, 29]) if (menuRows.has(k)) menuRows.get(k).el.classList.toggle("dim", !trackRoute());
+    },
     /* the MENU read again (settings opened, a value set): the shown rows follow */
     menu(items) { for (const m of items || []) if (menuRows.has(m.id)) menuRows.get(m.id).update(m.value, false); },
   };

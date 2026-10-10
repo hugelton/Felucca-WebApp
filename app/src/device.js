@@ -594,11 +594,14 @@ export class Device {
     const st = { ...s };
     if (!this.info.chance) delete st.chance;
     /* (a nudge needs the ratchet before it, the ratchet the chance: the step's own when not given) */
+    /* (1.5.5: a condition needs the nudge before it: the step's own) */
+    if (this.info.cond && st.cond != null && st.nudge == null) st.nudge = (this.steps[k] && this.steps[k].nudge) || 0;
+    if (!this.info.cond) delete st.cond;
     if (this.info.nudge && st.nudge != null && st.ratchet == null) st.ratchet = (this.steps[k] && this.steps[k].ratchet) || 1;
     if (st.ratchet != null && st.chance == null && this.info.chance) st.chance = (this.steps[k] && this.steps[k].chance) ?? 100;
     if (!this.info.ratchet || !this.info.chance) delete st.ratchet;
     else if (st.ratchet != null && st.chance == null) st.chance = 100;
-    if (!this.info.nudge || st.ratchet == null) delete st.nudge;
+    if (!this.info.nudge || st.ratchet == null) { delete st.nudge; delete st.cond; }
     try {
       this.steps[k] = parse[CMD.STEP_SET](await this.rq(req.stepSet(k, st), { key: "stepset:" + k }));
       this.stepEdit.set(k, this.now());
@@ -613,7 +616,8 @@ export class Device {
         if (k % 8 === 0) this.emit("progress", { what: "steps", n: k, total: this.info.nstep });
         this.steps[k] = parse[CMD.STEP_SET](await this.rq(req.stepSet(k, { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0,
           ...(this.info.chance ? { chance: 100 } : {}), ...(this.info.chance && this.info.ratchet ? { ratchet: 1 } : {}),
-          ...(this.info.chance && this.info.ratchet && this.info.nudge ? { nudge: 0 } : {}) })));
+          ...(this.info.chance && this.info.ratchet && this.info.nudge ? { nudge: 0 } : {}),
+          ...(this.info.chance && this.info.ratchet && this.info.nudge && this.info.cond ? { cond: 0 } : {}) })));
       }
       if (this.info.motionMax) { await this.rq(req.motion(this.sel ?? 0, 2)); this.motion = await this.motionAll(); }
       this.emit("steps", this);

@@ -22,6 +22,11 @@
 // - 1.3: MENU item 23 HOME (SCOPE, TRACKS: what HOME shows under its cards; DISPLAY), appended (INFO 4E 01 24)
 // - 1.5: HOME gained LEVELS (value 2, appended: the TRACKS rows, KNOB 1..4 the LEVEL of T1..T4)
 // - 1.5: MENU item 24 HELP (OFF, ON: a hint per page and layer on the device; SYSTEM), appended (INFO 4E 01 25)
+// - 1.5.5: MENU item 25 SELECT (BPM, PAGE: what the SELECT knob does; CONTROL), appended (INFO 4E 01 26)
+// - 1.5.5 (#202): MIDI IN (ROUT, global 14) gained TRACK (value 5, appended): each track on its own channel, MENU items
+//   26..29 T1..T4 CHANNEL (1..16 OMNI OFF, values 0..17; the project's as MIDI IN, rc 0; MIDI), appended (INFO 4E 01 30)
+// - 1.5.5 (#209): a step's condition (INFO 4B 01 0B, a byte after the nudge; opt.noCond: not)
+// - 1.5.5 (#208): MENU item 30 AUTO SELECT (OFF, ON: MIDI IN notes select their track; a setting; MIDI) (INFO 4E 01 31)
 // - 1.2: ARP MODE (P_AMODE) gained DNUP UP+8 CONV DIVG PINKY THUMB WALK CHORD (values 7..14, appended)
 // - 1.2 (FUN10): P_COUNT 103, P_E0 95: LFO 2 SYNC TRIG POL (91..93) and QUANTIZE (94, the track's) before the engine
 //   values; MOTION holds 128 records (ops 1..7 reply as before: max 64, at most 64 listed; op 8 lists all, count / max
@@ -51,6 +56,8 @@ const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANG
 /* user preset bank: name 1..12 printable ASCII, a 16-step pattern of (note, flags 1 acc 2 slide 4 tie) */
 const UP = { NAME_MAX: 12, PAT: 16, LIST_MAX: 16 };
 /* a user preset's sound category (1.4, category.c CAT_*): 0 none */
+/* a step's conditions (1.5.5, values 1..11): on loop a of every b, only with FILL held, only without it */
+const STEP_CONDS = ["1:2", "2:2", "1:3", "2:3", "3:3", "1:4", "2:4", "3:4", "4:4", "FILL", "!FILL"];
 const CATEGORIES = ["", "BASS", "LEAD", "PAD", "PLUCK", "KEYS", "DRUM", "FX", "OTHER"];
 const F = { INT: 0, PCT: 1, BIPCT: 2, TIME: 3, LFOHZ: 4, CUTOFF: 5, DB: 6, SEMI: 7, ENUM: 8, BPM: 9, NOTE: 10, ONOFF: 11, OCT: 12, STEPS: 13 };
 
@@ -114,6 +121,8 @@ function readHits(r, o) {
   if (o.ratchet < 1 || o.ratchet > 4) throw new Error("Invalid step ratchet");
   o.nudge = r.i < r.a.length ? r.b() - 8 : 0;     /* NUDGE (INFO 54 01, 1.2): -8..+7 sixteenths of the step; older: 0 */
   if (o.nudge < -8 || o.nudge > 7) throw new Error("Invalid step nudge");
+  o.cond = r.i < r.a.length ? r.b() : 0;          /* COND (INFO 4B 01, 1.5.5): 0 none, 1..11 STEP_CONDS[cond - 1]; older: 0 */
+  if (o.cond > 11) throw new Error("Invalid step condition");
   return o;
 }
 
@@ -159,13 +168,14 @@ const parse = {
       /* the tagged blocks from 53 01 on, walked by their known lengths (an unknown tag ends the walk): 1.2's 57 01 n =
          SONG sections with a slot per track (n lanes; SONG ops 4..7) */
       /* (1.4.1's 56 01 n: FM6's voice bank, n voices: cmds 74..77, SLOT 9.. = B1..Bn) */
-      const LEN = { 0x53: 1, 0x50: 1, 0x4E: 1, 0x52: 1, 0x4C: 1, 0x41: 2, 0x54: 1, 0x57: 1, 0x56: 1, 0x43: 1 };   /* (1.5's 43 01 n: MIDI LEARN, cmds 78, 79) */
+      const LEN = { 0x53: 1, 0x50: 1, 0x4E: 1, 0x52: 1, 0x4C: 1, 0x41: 2, 0x54: 1, 0x57: 1, 0x56: 1, 0x43: 1, 0x4B: 1 };   /* (1.5.5's 4B 01 n: a step's condition, n of them) */   /* (1.5's 43 01 n: MIDI LEARN, cmds 78, 79) */
       for (let q = p + 4; q + 2 < trailer.length && trailer[q + 1] === 1 && LEN[trailer[q]]; q += 2 + LEN[trailer[q]]) {
         if (trailer[q] === 0x57) o.songLanes = trailer[q + 2];
         if (trailer[q] === 0x41 && q + 3 < trailer.length) o.motionCap = trailer[q + 2] | trailer[q + 3] << 7;   /* 1.2: 128 */
         if (trailer[q] === 0x54) o.nudge = trailer[q + 2];                                                      /* 1.2: 16 */
         if (trailer[q] === 0x56) o.fm6Bank = trailer[q + 2];                                                    /* 1.4.1: 32 */
         if (trailer[q] === 0x43) o.midiLearn = trailer[q + 2];                                                  /* 1.5: 16 */
+        if (trailer[q] === 0x4B) o.cond = trailer[q + 2];                                                       /* 1.5.5: 11 */
       }
     }
     o.menuCount = o.menuCount || 0;
@@ -174,6 +184,7 @@ const parse = {
     o.nudge = o.nudge || 0;                       /* 0: no nudge byte in steps */
     o.fm6Bank = o.fm6Bank || 0;                   /* FM6's voice bank (1.4.1): 0 none */
     o.midiLearn = o.midiLearn || 0;               /* MIDI LEARN's entries (1.5): 0 none */
+    o.cond = o.cond || 0;                         /* a step's conditions (1.5.5): 0 none (no condition byte in steps) */
     o.categories = o.motionCap > 0;               /* user preset categories (1.2 / 1.4, with the same tags) */
     return o;
   },
@@ -372,7 +383,8 @@ const req = {
       ...(st.hit == null && st.chance == null ? [] : hitsEnc(st.hit | 0, st.acc | 0)),
       ...(st.chance == null ? [] : [Math.max(0, Math.min(100, st.chance | 0))]),
       ...(st.chance == null || st.ratchet == null ? [] : [Math.max(1, Math.min(4, st.ratchet | 0))]),   /* (only after the chance) */
-      ...(st.chance == null || st.ratchet == null || st.nudge == null ? [] : [Math.max(-8, Math.min(7, st.nudge | 0)) + 8])]];   /* (the ratchet) */
+      ...(st.chance == null || st.ratchet == null || st.nudge == null ? [] : [Math.max(-8, Math.min(7, st.nudge | 0)) + 8]),   /* (the ratchet) */
+      ...(st.chance == null || st.ratchet == null || st.nudge == null || st.cond == null ? [] : [Math.max(0, Math.min(11, st.cond | 0))])]];   /* (the nudge) */
   },
   preset: (e, p) => [CMD.PRESET, [e & 0x7F, p & 0x7F]],
   project: (op, slot) => { if (![0, 1, 2].includes(op)) throw new Error("bad PROJECT op"); return [CMD.PROJECT, [op, slot & 3]]; },   /* 0 load, 1 save, 2 query */
@@ -580,7 +592,7 @@ function fmtValue(d, v) {
   const sign = (x) => (x > 0 ? "+" + x : String(x));
   switch (d.fmt) {
     case F.PCT: return [String(d.max === 100 ? v : Math.trunc((v * 100 + 63) / 127)), "%"];   /* 0..100 (SWG): the value */
-    case F.BIPCT: return [sign(Math.trunc(v * 100 / 64)), "%"];
+    case F.BIPCT: return [sign(Math.trunc(v * 100 / (v > 0 ? 63 : 64))), "%"];   /* (1.5.5: +100 at the top, as the device) */
     case F.TIME: {
       const ms10 = Math.round(10 * Math.pow(10000, (v & 127) / 127));
       if (ms10 < 100) return [(ms10 / 10).toFixed(1), "ms"];
@@ -1498,6 +1510,7 @@ const engineLabel = (engines, e) => (e === 1 && (engines || [])[1] === "-" ? "FM
    firmware's, build/host/menu.json): id, name, value names (COLOR: the palettes, UI_PALETTES), the default, (1.0.5)
    the tab the device shows it in (MENU_TABS: its names, menu_items.c MTAB_NAME) */
 const MENU_TABS = ["DISPLAY", "CONTROL", "AUDIO", "MIDI", "SYSTEM"];   /* (1.2: MIDI before SYSTEM) */
+const MENU_TCH = [...Array.from({ length: 16 }, (_, i) => String(i + 1)), "OMNI", "OFF"];   /* (1.5.5: T1..T4 CHANNEL) */
 const MENU = [
   { id: 0, name: "COLOR", names: null, def: 0, tab: 0 }, { id: 1, name: "STYLE", names: ["FLAT", "LINE"], def: 0, tab: 0 },
   { id: 2, name: "LARGE", names: ["OFF", "ON"], def: 0, tab: 0 }, { id: 3, name: "ANIM", names: ["ON", "OFF", "IDLE"], def: 0, tab: 0 },  // (1.2: IDLE, the LEDs' idle animation)
@@ -1525,12 +1538,18 @@ const MENU = [
   { id: 20, name: "CHORD ENTRY", names: ["HOLD", "ADD"], def: 0, tab: 1 },
   /* 1.2: the old GLO > SYSTEM ROUT and GLO > GLOBAL TUNE, the project's values (g: the global they set, as SET does);
      TUNE a number (kind 1: min..max, its unit) */
-  { id: 21, name: "MIDI IN", names: ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], def: 0, tab: 3, g: 14 },
+  { id: 21, name: "MIDI IN", names: ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16", "TRACK"], def: 0, tab: 3, g: 14 },  // (1.5.5: TRACK)
   { id: 22, name: "TUNE", kind: 1, min: -50, max: 50, unit: "ct", names: [], def: 0, tab: 2, g: 3 },
   /* 1.3 (Discussions #112, #134): HOME under its cards: the scope (as before) or the four tracks as rows */
   { id: 23, name: "HOME", names: ["SCOPE", "TRACKS", "LEVELS"], def: 0, tab: 0 },  // (1.5: LEVELS, #134)
   /* 1.5 (Discussion #156): a short hint per page (in the footer when it opens) and per layer (under its map) */
   { id: 24, name: "HELP", names: ["OFF", "ON"], def: 0, tab: 4 },
+  /* 1.5.5 (Discussion #188): the SELECT knob sets the tempo (BPM, as before) or steps the pages of the family shown */
+  { id: 25, name: "SELECT", names: ["BPM", "PAGE"], def: 0, tab: 1 },
+  /* 1.5.5 (#202): MIDI IN TRACK, each track's channel (the project's, as MIDI IN: rc 0, proj); used with MIDI IN TRACK */
+  ...[0, 1, 2, 3].map((k) => ({ id: 26 + k, name: `T${k + 1} CHANNEL`, names: MENU_TCH, def: k, tab: 3, proj: true })),
+  /* 1.5.5 (#208): MIDI IN notes into a track that is not selected select it (held off while the selected one plays) */
+  { id: 30, name: "AUTO SELECT", names: ["OFF", "ON"], def: 0, tab: 3 },
 ];
 /* the MENU settings the device offers, in its menu's order (firmware without them: []); rq as the other readers */
 async function readDeviceMenu(rq, info) {
@@ -1569,7 +1588,7 @@ function makeMockDevice(opt = {}) {
     D("BPM", F.BPM, 40, 240, 120), D("SWG", F.PCT, 0, 100, 0), E("CLK", ["INT", "USB", "TRS"], 0), D("TUNE", F.INT, -50, 50, 0),
     E("TIME", [...NDIV, "1/8D", "1/16D", "1/4D"], 1), D("FDBK", F.PCT, 0, 120, 60), D("COLR", F.PCT, 0, 127, 70), D("MIX", F.PCT, 0, 127, 90),
     D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60), D("CRT", F.LFOHZ, 0, 127, 40), D("CDP", F.PCT, 0, 127, 60),
-    E("MIDI", ["USB", "TRS"], 0), E("SYNC", NDASH, 0), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 0), D("CPU", F.INT, 0, 0, 0),
+    E("MIDI", ["USB", "TRS"], 0), E("SYNC", NDASH, 0), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16", "TRACK"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
       "GRAIN", "PHYS", "DRUM", "NOISE", "FM6", "SLICE"], 0), E("SET", NGO, 0),
@@ -1795,15 +1814,24 @@ function makeMockDevice(opt = {}) {
   };
   const ratchetOn = () => !!syncCaps() && !opt.noRatchet;   /* (INFO 52 01 04, after the sync tag) */
   const locksOn = () => ratchetOn() && !opt.noLocks;          /* (INFO 4C 01 01, after the ratchet's: 1.1) */
-  const capOn = () => locksOn() && !opt.v11;                  /* (INFO 41 01 00 01, 54 01 16, 57 01 4: 1.2 / 1.4; opt.v11: as 1.1.5) */
+  const capOn = () => locksOn() && !opt.v11;
+  /* (INFO 4B 01 0B, after MIDI LEARN's: 1.5.5; its byte follows the nudge) */
+  const condOn = () => capOn() && !opt.noFm6 && !opt.noMenu && !opt.noLanes && !opt.noVbank && !opt.noLearn && !opt.noCond;                  /* (INFO 41 01 00 01, 54 01 16, 57 01 4: 1.2 / 1.4; opt.v11: as 1.1.5) */
   const motionMax = () => (capOn() ? 128 : 64);
-  const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); if (ratchetOn()) b(x.ratchet ?? 1); if (capOn()) b((x.nudge ?? 0) + 8); };
+  const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); if (ratchetOn()) b(x.ratchet ?? 1); if (capOn()) b((x.nudge ?? 0) + 8); if (condOn()) b(x.cond ?? 0); };
   function stepIn(x, a) {                         /* editor.c ed_step_put: n, 4 notes, time, flags, vel [, hits (3) [, chance [, ratchet]]] */
     x.n = Math.min(4, a[0]); x.notes = a.slice(1, 5); x.time = Math.min(2, a[5]); x.flags = a[6] & 3; x.vel = a[7];
     if (a.length >= 11) { x.hit = a[8] | (a[10] & 1) << 7; x.acc = (a[9] | (a[10] & 2) << 6) & x.hit; }
     if (a.length >= 12) x.chance = Math.min(100, a[11]);
     if (a.length >= 13 && ratchetOn()) x.ratchet = Math.max(1, Math.min(4, a[12]));
     if (a.length >= 14 && capOn()) x.nudge = a[13] - 8;   /* (1.2: nudge + 8, 0..15; a byte above: refused before) */
+    /* 1.5.5: a condition byte after the nudge sets it (0 clears it); without one a chance of 100 keeps the step's
+       condition and any other chance replaces it. A condition plays at 100 % (the reply's chance) */
+    if (condOn()) {
+      if (a.length >= 15) x.cond = a[14];
+      else if (a.length >= 12 && a[11] !== 100) x.cond = 0;
+      if (x.cond) x.chance = 100;
+    }
   }
   /* a few user presets to start with, each with its preset's suggested pattern stored (as UP_STORE would) */
   [[0, 0, 0, "MY LEAD"], [1, FM6_E, 1, "GLASS BELL"], [2, 2, 3, "PHASE RESO"], [5, 3, 2, "8BIT ARP"]].forEach(([slot, e, p, name]) => {
@@ -1954,7 +1982,7 @@ function makeMockDevice(opt = {}) {
         if (!m) { b(1); b(a[0]); v(val); break; }
         const x = m.kind === 1 ? Math.max(m.min, Math.min(m.max, val)) : Math.max(0, Math.min((m.names || st.palettes).length - 1, val));
         if (m.id === 0) st.palette = x; else if (m.g != null) st.g[m.g] = x; else st.menu[i] = x;
-        b(m.g != null ? 0 : opt.noFlash ? 3 : opt.deferSettings ? 4 : 0); b(m.id); v(x);   /* (the project's: rc 0) */
+        b(m.g != null || m.proj ? 0 : opt.noFlash ? 3 : opt.deferSettings ? 4 : 0); b(m.id); v(x);   /* (the project's: rc 0) */
         break;
       }
       case CMD.FAV_GET: case CMD.FAV_SET: {
@@ -2010,7 +2038,7 @@ function makeMockDevice(opt = {}) {
           b(16);
           if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noBackup) { b(0x42); b(1); b(3); } if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(0); }
             if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); if (!opt.noMenu) { b(0x4E); b(1); b(MENU.length); } } if (ratchetOn()) { b(0x52); b(1); b(4); if (locksOn()) { b(0x4C); b(1); b(1);
-              if (capOn()) { b(0x41); b(1); b(0); b(1); b(0x54); b(1); b(16); if (!opt.noLanes) { b(0x57); b(1); b(NTRK); if (!opt.noVbank) { b(0x56); b(1); b(32); if (!opt.noLearn) { b(0x43); b(1); b(16); } } } } } } } }   /* (FM6 v2: no bank, preset
+              if (capOn()) { b(0x41); b(1); b(0); b(1); b(0x54); b(1); b(16); if (!opt.noLanes) { b(0x57); b(1); b(NTRK); if (!opt.noVbank) { b(0x56); b(1); b(32); if (!opt.noLearn) { b(0x43); b(1); b(16); if (!opt.noCond) { b(0x4B); b(1); b(11); } } } } } } } } }   /* (FM6 v2: no bank, preset
               patches; MENU settings; RATCH; locks; 1.2: 128 records, nudge, song lanes) */
         }
         break;
@@ -2076,6 +2104,7 @@ function makeMockDevice(opt = {}) {
       case CMD.STEP_GET: case CMD.STEP_SET: {
         if (a.length < 1 || a[0] >= NSTEP) return null;
         const x = st.step[a[0]];
+        if (cmd === CMD.STEP_SET && a.length >= 16 && condOn() && a[15] > 11) return null;   /* (a condition above 11: no reply) */
         if (cmd === CMD.STEP_SET && a.length >= 9) stepIn(x, a.slice(1));
         b(a[0]); stepOut(x, b);
         break;
@@ -2509,6 +2538,6 @@ export {
   parseWav, resample, pyRound, normalize, FADE, takeSample, zoomView, autoTrim, rootFromName, buildSlot,
   LIB, paramKeys, sameKeys, remapParams, tailParams, patNorm, patternFromSteps, stepsFromPattern, patternUsed, gridFromSteps,
   cleanPatch, libraryFile, readLibraryFile, FLASH_OPT, bank, capturePatch, TRACK_OWN, P_CHORD, P_LANES, trackOwn, auditionPatch,
-  startWatch, mixer, FM6, fm6Bank, midiLearn, FM4, CATEGORIES, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice, parseMotionAll,
+  startWatch, mixer, FM6, fm6Bank, midiLearn, FM4, CATEGORIES, STEP_CONDS, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice, parseMotionAll,
   readDevicePreferences, aliasOf, divLength, enumShown, ENGINE_ORDER, engineOrder, devicePresetRows, MENU, MENU_TABS, readDeviceMenu,
 };

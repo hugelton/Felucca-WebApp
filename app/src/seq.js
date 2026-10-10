@@ -5,7 +5,7 @@
 // pattern (LEN DIV SWG GATE) and AUTOMATION (1.0.4; MOTION before, and in the protocol). A DRUM track shows its 8 lanes as a grid; every other engine its notes.
 // Arrows move the cursor, Space turns a step (a hit, on the grid) on or off, Enter goes to the step's notes.
 
-import { F, LANES, noteName, parseNotes } from "./proto.js";
+import { F, LANES, STEP_CONDS, noteName, parseNotes } from "./proto.js";
 import { $$, el, ic } from "./dom.js";
 import { HEAD_IC, LAYOUT, paramIcon, visible } from "./layout.js";
 import { knownLayout } from "./device.js";
@@ -87,14 +87,15 @@ export function seqScreen(root, ui) {
         return el("button", {
           type: "button", role: "gridcell", "data-k": k, tabindex: k === cur ? "0" : "-1",
           class: "step" + (on ? " on" : "") + (on && s.flags & 1 ? " acc" : "") + (tie ? " tie" : "") + (out ? " out" : ""),
-          "aria-current": String(k === cur), "aria-label": `${k + 1}: ${on ? notesText(s) || "HIT" : tie ? "TIE" : "REST"}${on && s.flags & 1 ? " ACC" : ""}${on && s.flags & 2 ? " SLD" : ""}${on && s.ratchet > 1 ? " x" + s.ratchet : ""}${on && s.nudge ? ` NUDGE ${s.nudge > 0 ? "+" : ""}${s.nudge}` : ""}`,
+          "aria-current": String(k === cur), "aria-label": `${k + 1}: ${on ? notesText(s) || "HIT" : tie ? "TIE" : "REST"}${on && s.flags & 1 ? " ACC" : ""}${on && s.flags & 2 ? " SLD" : ""}${on && s.ratchet > 1 ? " x" + s.ratchet : ""}${on && s.nudge ? ` NUDGE ${s.nudge > 0 ? "+" : ""}${s.nudge}` : ""}${on && s.cond ? " " + STEP_CONDS[s.cond - 1] : ""}`,
           onclick: () => { cur = k; drawDetail(); markCursor(); },
           ondblclick: () => write(k, stepToggled(dev.steps, k)),
           onfocus: () => help(`${t("steps")} ${k + 1}`, on ? notesText(s) : tie ? "TIE" : "REST"),
           onkeydown: (e) => gridKey(e, k, 0),
         },
         el("span", { class: "k", text: String(k + 1) }),
-        s.chance != null && s.chance < 100 && on ? el("span", { class: "ch", text: s.chance + "%" }) : null,
+        on && s.cond ? el("span", { class: "ch", text: STEP_CONDS[s.cond - 1] || "" })   /* (1.5.5: the step's condition) */
+          : s.chance != null && s.chance < 100 && on ? el("span", { class: "ch", text: s.chance + "%" }) : null,
         el("span", { class: "x", text: on ? first : tie ? "—" : "" }),
         on && (s.flags & 2 || s.ratchet > 1 || s.nudge) ? el("span", { class: "sl", "aria-hidden": "true",
           text: (s.flags & 2 ? "~" : "") + (s.ratchet > 1 ? "x" + s.ratchet : "") + (s.nudge ? (s.nudge > 0 ? "›" : "‹") : "") }) : null);
@@ -156,7 +157,13 @@ export function seqScreen(root, ui) {
     rows.push(el("div", { class: "enum" }, el("span", { class: "lbl", text: "TIME" }), cells(TIMES, s.time, (i) => set({ time: i }), "TIME").el));
     rows.push(el("label", { class: "field" }, el("span", { class: "lbl", text: "NOTES" }), notes));
     rows.push(paramRow({ fmt: F.INT, min: 0, max: 127, def: 96, label: "VEL", unit: "" }, s.vel, (v, final) => { if (final) set({ vel: v }); }, { icon: "symbol_volume" }).el);
-    if (dev.info.chance) rows.push(paramRow({ fmt: F.PCT, min: 0, max: 100, def: 100, label: "CHANCE", unit: "%" }, s.chance ?? 100,
+    /* CHANCE: 0..100 %; 1.5.5 (INFO 4B): then the conditions, one control as the device's knob (101.. = 1:2 .. !FILL),
+       sent as chance 100 + the condition (a chance clears it) */
+    if (dev.info.chance && dev.info.cond)
+      rows.push(paramRow({ fmt: F.INT, min: 0, max: 100 + STEP_CONDS.length, def: 100, label: "CHANCE", unit: "" }, s.cond ? 100 + s.cond : s.chance ?? 100,
+        (v, final) => { if (final) set(v > 100 ? { chance: 100, cond: v - 100 } : { chance: v, cond: 0 }); },
+        { icon: "symbol_dice", rename: (x) => (+x > 100 ? STEP_CONDS[+x - 101] : `${x}%`) }).el);
+    else if (dev.info.chance) rows.push(paramRow({ fmt: F.PCT, min: 0, max: 100, def: 100, label: "CHANCE", unit: "%" }, s.chance ?? 100,
       (v, final) => { if (final) set({ chance: v }); }, { icon: "symbol_dice" }).el);
     if (dev.info.chance && dev.info.ratchet)          /* RATCH (1.0.5): the step's hits, x1 .. x4 (as the device's STEP page) */
       rows.push(el("div", { class: "enum" }, el("span", { class: "lbl", text: "RATCH" }),

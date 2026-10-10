@@ -178,11 +178,11 @@ async function editorMock() {
   ok(none === null, "editor: old firmware receives no unsupported preference requests");
   if (!E.readDeviceMenu) console.log(`${"editor: MENU settings (this editor has none)".padEnd(64)} skip`);
   else {   /* the MENU settings (1.0.4): INFO 4E 01 count, MENU_DESC (72), MENU_SET (73) */
-    ok(info.menuCount === 25, "editor: INFO advertises the MENU settings (4E 01 25; 1.1: CLICK, CLICK LEVEL, COUNT-IN; 1.2: RESTORE LAST, SCALE LEDS; 1.1.5: SCREEN OFF; 1.2: SCOPE, STEP PREVIEW, CHORD ENTRY, MIDI IN, TUNE; 1.3: HOME; 1.5: HELP)");
+    ok(info.menuCount === 31, "editor: INFO advertises the MENU settings (4E 01 31; 1.1: CLICK, CLICK LEVEL, COUNT-IN; 1.2: RESTORE LAST, SCALE LEDS; 1.1.5: SCREEN OFF; 1.2: SCOPE, STEP PREVIEW, CHORD ENTRY, MIDI IN, TUNE; 1.3: HOME; 1.5: HELP; 1.5.5: SELECT, T1..T4 CHANNEL, AUTO SELECT)");
     const items = await E.readDeviceMenu(rq, info);
-    ok(items.length === 25 && items.map((d) => d.id).join() === "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24" &&
+    ok(items.length === 31 && items.map((d) => d.id).join() === "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30" &&
        items.map((d) => d.name).join() ===
-         "COLOR,STYLE,LARGE,ANIM,LEDS,HOLD,KNOB ACCEL,FX LATCH,BPM LOCK,SPEAKER EQ,USB LEVEL,USB SERIAL,CLICK,CLICK LEVEL,COUNT-IN,RESTORE LAST,SCALE LEDS,SCREEN OFF,SCOPE,STEP PREVIEW,CHORD ENTRY,MIDI IN,TUNE,HOME,HELP" &&
+         "COLOR,STYLE,LARGE,ANIM,LEDS,HOLD,KNOB ACCEL,FX LATCH,BPM LOCK,SPEAKER EQ,USB LEVEL,USB SERIAL,CLICK,CLICK LEVEL,COUNT-IN,RESTORE LAST,SCALE LEDS,SCREEN OFF,SCOPE,STEP PREVIEW,CHORD ENTRY,MIDI IN,TUNE,HOME,HELP,SELECT,T1 CHANNEL,T2 CHANNEL,T3 CHANNEL,T4 CHANNEL,AUTO SELECT" &&
        items[12].names.join() === "OFF,REC,ON" && items[12].value === 0 && items[13].names.join() === "LOW,MID,HIGH" &&
        items[13].value === 1 && items[14].names.join() === "OFF,1 BAR,2 BARS" && items[14].value === 0 &&
        items[15].names.join() === "ON,OFF" && items[15].value === 0 && items[16].names.join() === "OFF,ON" && items[16].value === 0 &&
@@ -190,18 +190,22 @@ async function editorMock() {
        items[18].names.join() === "OUT,MIX" && items[18].value === 0 && items[19].names.join() === "OFF,ON" &&
        items[19].value === 0 && items[20].names.join() === "HOLD,ADD" && items[20].value === 0 &&
        items.slice(0, 22).every((d) => d.kind === 0 && d.min === 0 && d.names.length === d.max - d.min + 1) &&
-       items[21].names.join() === "CH1-4,SEL,CH5-8,CH9-12,CH13-16" && items[21].value === 0 &&
+       items[21].names.join() === "CH1-4,SEL,CH5-8,CH9-12,CH13-16,TRACK" && items[21].value === 0 &&
+       items.slice(26, 30).every((d, k) => d.kind === 0 && d.names.length === 18 && d.names[9] === "10" && d.names[16] === "OMNI" &&
+                                         d.names[17] === "OFF" && d.value === k && d.tab === 3) &&   // (1.5.5: T1..T4 CHANNEL)
+       items[30].names.join() === "OFF,ON" && items[30].value === 0 && items[30].tab === 3 &&   // (1.5.5: AUTO SELECT)
        items[22].kind === 1 && items[22].min === -50 && items[22].max === 50 && items[22].unit === "ct" && items[22].value === 0 &&
        items[23].kind === 0 && items[23].names.join() === "SCOPE,TRACKS,LEVELS" && items[23].value === 0 &&
        items[24].kind === 0 && items[24].names.join() === "OFF,ON" && items[24].value === 0 &&   // (1.5: HELP)
+       items[25].kind === 0 && items[25].names.join() === "BPM,PAGE" && items[25].value === 0 &&   // (1.5.5: SELECT)
        eq(items[0].names, prefs.palettes) && items[0].value === m.state.palette &&
        items[4].names.join() === "OFF,DIM LO,DIM HI,INV" && items[4].value === 2 && items[5].value === 1,
        "editor: MENU_DESC lists every setting, its value names and value");
-    ok(items.map((d) => d.tab).join() === "0,0,0,0,0,1,1,1,1,2,2,4,2,2,2,4,1,0,0,1,1,3,2,0,4" &&
+    ok(items.map((d) => d.tab).join() === "0,0,0,0,0,1,1,1,1,2,2,4,2,2,2,4,1,0,0,1,1,3,2,0,4,1,3,3,3,3,3" &&
        items.map((d) => d.tabName).join() ===
-         "DISPLAY,DISPLAY,DISPLAY,DISPLAY,DISPLAY,CONTROL,CONTROL,CONTROL,CONTROL,AUDIO,AUDIO,SYSTEM,AUDIO,AUDIO,AUDIO,SYSTEM,CONTROL,DISPLAY,DISPLAY,CONTROL,CONTROL,MIDI,AUDIO,DISPLAY,SYSTEM",
+         "DISPLAY,DISPLAY,DISPLAY,DISPLAY,DISPLAY,CONTROL,CONTROL,CONTROL,CONTROL,AUDIO,AUDIO,SYSTEM,AUDIO,AUDIO,AUDIO,SYSTEM,CONTROL,DISPLAY,DISPLAY,CONTROL,CONTROL,MIDI,AUDIO,DISPLAY,SYSTEM,CONTROL,MIDI,MIDI,MIDI,MIDI,MIDI",
        "editor: MENU_DESC (1.0.5) gives each setting's tab on the device, after its names");
-    ok(E.parse[E.CMD.MENU_DESC](await rq(E.req.menuDesc(25))).id === 127, "editor: MENU_DESC past the list answers id 127");
+    ok(E.parse[E.CMD.MENU_DESC](await rq(E.req.menuDesc(31))).id === 127, "editor: MENU_DESC past the list answers id 127");
     let r = E.parse[E.CMD.MENU_SET](await rq(E.req.menuSet(4, 3)));
     ok(r.rc === 0 && r.id === 4 && r.value === 3 && E.parse[E.CMD.MENU_DESC](await rq(E.req.menuDesc(4))).value === 3,
        "editor: MENU_SET round trip (LEDS INV)");
@@ -223,7 +227,8 @@ async function editorMock() {
     ok(r.rc === 0 && r.id === 17 && r.value === 4 && E.parse[E.CMD.MENU_DESC](await rq(E.req.menuDesc(17))).value === 4,
        "editor: MENU_SET round trip (1.1.5: SCREEN OFF 9 -> 60 MIN, clamped)");
     await rq(E.req.menuSet(17, 3));
-    for (const [id, name] of [[18, "1.2: SCOPE MIX"], [19, "1.2: STEP PREVIEW ON"], [20, "1.2: CHORD ENTRY ADD"], [23, "1.3: HOME TRACKS; 1.5: LEVELS"]]) {
+    for (const [id, name] of [[18, "1.2: SCOPE MIX"], [19, "1.2: STEP PREVIEW ON"], [20, "1.2: CHORD ENTRY ADD"], [23, "1.3: HOME TRACKS; 1.5: LEVELS"],
+                              [25, "1.5.5: SELECT PAGE"]]) {
       const top = id === 23 ? 2 : 1;                 /* (1.5: HOME SCOPE TRACKS LEVELS) */
       r = E.parse[E.CMD.MENU_SET](await rq(E.req.menuSet(id, 5)));
       ok(r.rc === 0 && r.id === id && r.value === top && E.parse[E.CMD.MENU_DESC](await rq(E.req.menuDesc(id))).value === top,
@@ -239,11 +244,18 @@ async function editorMock() {
       const g3 = E.parse[E.CMD.GET](await rq(E.req.get(1, 3))).value;
       await rq(E.req.set(1, 3, 17));
       const d22 = E.parse[E.CMD.MENU_DESC](await rq(E.req.menuDesc(22))).value;
-      ok(r.rc === 0 && r.value === 4 && g14 === 4 && d21 === 2 && t.rc === 0 && t.value === -50 && g3 === -50 && d22 === 17,
+      ok(r.rc === 0 && r.value === 5 && g14 === 5 && d21 === 2 && t.rc === 0 && t.value === -50 && g3 === -50 && d22 === 17,
          "editor: MENU_SET MIDI IN / TUNE (1.2) set globals 14 / 3 (clamped, rc 0), MENU_DESC reads what SET set");
       await rq(E.req.set(1, 14, 0)); await rq(E.req.set(1, 3, 0));
     }
-    ok(E.parse[E.CMD.MENU_SET](await rq(E.req.menuSet(25, 1))).rc === 1, "editor: MENU_SET of an unknown id: rc 1");
+    {   /* 1.5.5: T1..T4 CHANNEL (26..29), the project's (rc 0): 1..16 OMNI OFF as 0..17, clamped */
+      r = E.parse[E.CMD.MENU_SET](await rq(E.req.menuSet(26, 9)));
+      const r2 = E.parse[E.CMD.MENU_SET](await rq(E.req.menuSet(29, 40)));
+      ok(r.rc === 0 && r.value === 9 && E.parse[E.CMD.MENU_DESC](await rq(E.req.menuDesc(26))).value === 9 && r2.rc === 0 &&
+         r2.value === 17, "editor: MENU_SET T1 / T4 CHANNEL (1.5.5: the project's, rc 0; 40 clamps to OFF)");
+      await rq(E.req.menuSet(26, 0)); await rq(E.req.menuSet(29, 3));
+    }
+    ok(E.parse[E.CMD.MENU_SET](await rq(E.req.menuSet(31, 1))).rc === 1, "editor: MENU_SET of an unknown id: rc 1");
     await rq(E.req.menuSet(0, pal)); await rq(E.req.menuSet(4, 2));
     const d = E.parse[E.CMD.MENU_DESC]([3, 20, 1, 5, 64, 0, 64, 100, 64, 88, 0, 109, 115, 0]);
     ok(d.kind === 1 && d.value === 5 && d.max === 100 && d.name === "X" && d.unit === "ms" && d.names === null && d.tab === -1,
@@ -271,8 +283,8 @@ async function editorMock() {
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 14)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 5)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 14, 0)));
-    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"]) && r1.value === 4 && r0.value === 0 && info.gcount === 27,
-      "editor: MIDI IN routing (ROUT CH1-4 / SEL / CH5-8 / CH9-12 / CH13-16, global id 14)");
+    ok(rd.label === "ROUT" && rd.def === 0 && eq(rd.names, ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16", "TRACK"]) && r1.value === 5 && r0.value === 0 && info.gcount === 27,
+      "editor: MIDI IN routing (ROUT CH1-4 / SEL / CH5-8 / CH9-12 / CH13-16 / 1.5.5 TRACK, global id 14)");
   }
   {
     /* FX > REVERB TYPE (G_RTYPE 24, the old drum channel's id): ROOM (0) / SPRING (1) / HALL (2, 1.2: the default);
