@@ -108,13 +108,35 @@ export async function captureBackup(request, firmware, onProgress = () => {}) {
   const file = { format: "felucca-backup", version: 1, firmware, created: new Date().toISOString(), objects };
   readBackup(file); return file;
 }
-export async function restoreBackup(request, file, onProgress = () => {}) {
+// The projects of a backup (ids 0 the current one, 2..5 A..D) that use a step condition (1.5.5: 1:2 .. !FILL): FUN10
+// ("FUNA", 3840 bytes) whose steps' chance byte (the 9th of each, 64 steps a track after its np parameters, engine and
+// preset, from byte 68) holds 102..112. Firmware without conditions (no INFO 4B 01) cannot open them. -> their ids
+export function conditionalProjects(archive) {
+  const out = [];
+  for (const o of (archive && archive.objects) || []) {
+    const b = o.bytes;
+    if (!(o.id === 0 || (o.id >= 2 && o.id <= 5)) || !b || b.length !== 3840 || String.fromCharCode(b[0], b[1], b[2], b[3]) !== "FUNA") continue;
+    const np = b[66];
+    let hit = false;
+    for (let t = 0; t < 4 && !hit; t++) {
+      const base = 68 + t * (np + 2 + 576) + np + 2;
+      for (let i = 0; i < 64 && !hit; i++) { const c = b[base + i * 9 + 8] & 127; if (c >= 102 && c <= 112) hit = true; }
+    }
+    if (hit) out.push(o.id);
+  }
+  return out;
+}
+
+// opts.skip: the ids not to send (they stay as they are on the device)
+export async function restoreBackup(request, file, onProgress = () => {}, opts = {}) {
   const archive = readBackup(file); // Validate every byte before the first destructive request.
+  const skip = new Set(opts.skip || []);
   const total = archive.objects.reduce((n, o) => n + o.size, 0); let done = 0;
   const ask = async (r, o = {}) => request(r, { timeout: 4000, retries: 0, ...o });
   const put = async (args) => { const a = await ask([BACKUP_CMD.PUT, args]); bkCheck(a[2]); return a; };
   // Restore live music last. Other objects commit individually; a disconnect can leave a partial restore.
   for (const o of [...archive.objects.slice(2), archive.objects[1], archive.objects[0]]) {
+    if (skip.has(o.id)) { done += o.size; onProgress(done, total); continue; }
     if (o.id >= 32) {
       const slot = o.id - 32;
       const check = (a) => { if (a[0] !== slot) throw new Error("Unexpected sample reply"); bkCheck(a.at(-1)); };

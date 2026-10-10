@@ -23,7 +23,10 @@ export function projectScreen(root, ui) {
     let archive;
     try { archive = dev.backupCheck(await f.text()); } catch (e) { ui.say(`${f.name}: ${e.message}`, "warn"); return; }
     if (!(await ui.confirm("RESTORE ALL?"))) return;
-    run(() => dev.backupRestore(archive, (n, total) => ui.progress(`BACKUP ${Math.round(n / Math.max(1, total) * 100)}%`)),
+    /* 1.5.5: projects with step conditions on firmware without them: never sent as they are; skip them, or cancel */
+    const cond = dev.backupConditional(archive);
+    if (cond.length && !(await ui.confirm(tf("condSkipQ", cond.map((id) => (id === 0 ? t("currentProject") : L(id - 2))).join(", "))))) return;
+    run(() => dev.backupRestore(archive, (n, total) => ui.progress(`BACKUP ${Math.round(n / Math.max(1, total) * 100)}%`), cond),
       (ok) => { if (ok) ui.say(tf("didRestore", f.name)); });
   });
 

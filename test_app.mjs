@@ -210,6 +210,32 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   ok(proto.fmtValue(bip, -64)[0] === "-100" && proto.fmtValue(bip, 63)[0] === "+100" && proto.fmtValue(bip, 0)[0] === "0", "1.5.5: bipolar values read -100 .. +100");
 }
 {
+  /* 1.5.5: a backup's projects with step conditions, found in FUN10 (the chance byte 102..112), skipped on firmware
+     without conditions (only when asked: the restore leaves them out, the rest goes as before) */
+  const { conditionalProjects } = await import("./fm1backup.js");
+  const fun10 = (cond) => { const b = new Uint8Array(3840); b.set([0x46, 0x55, 0x4E, 0x41]); b[66] = 111;
+    const base = 68 + 2 * (111 + 2 + 576) + 111 + 2;                   /* (track 3, step 5) */
+    b[base + 5 * 9 + 8] = cond ? 105 | 128 : 100; return b; };
+  const arc = { objects: [{ id: 0, size: 3840, bytes: fun10(false) }, { id: 1, size: 10, bytes: new Uint8Array(10) },
+    { id: 2, size: 3840, bytes: fun10(true) }, { id: 3, size: 3840, bytes: fun10(false) }, { id: 4, size: 0, bytes: new Uint8Array(0) },
+    { id: 5, size: 3840, bytes: fun10(true) }] };
+  ok(conditionalProjects(arc).join() === "2,5", "1.5.5: a backup's projects with a step condition found (B and D; a ratchet bit ignored)");
+  const m = proto.makeMockDevice({ auto: false, noCond: true }), d = new Device(m.access);
+  await d.open();
+  ok(d.backupConditional(arc).join() === "2,5", "1.5.5: on firmware without conditions they are reported");
+  const file = await d.backupSave(), sent = [];
+  const rq0 = d.rq.bind(d);
+  d.rq = (r, o) => { if (r[0] === 67 && r[1][0] === 0) sent.push(r[1][1]); return rq0(r, o); };
+  ok((await d.backupRestore(d.backupCheck(JSON.stringify(file)), () => {}, [2, 5])) && !sent.includes(2) && !sent.includes(5) && sent.includes(3) && sent.includes(0),
+    "1.5.5: restored with B and D skipped (never sent), the rest as before");
+  d.rq = rq0;
+  d.close();
+  const m2 = proto.makeMockDevice({ auto: false }), d2 = new Device(m2.access);
+  await d2.open();
+  ok(d2.backupConditional(arc).length === 0, "1.5.5: firmware with conditions: nothing to skip");
+  d2.close();
+}
+{
   /* #203: a slot's RATE and BITS (editor only: the header's per-zone rate, a crush before the ADPCM); the defaults
      are what the editor always wrote */
   const S = await import("./app/src/samples.js");

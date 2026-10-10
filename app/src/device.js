@@ -6,7 +6,7 @@
 // and the edits. No DOM: the page listens (on) and calls; the tests drive it against the mock device.
 // The behaviour is editor.html's (connect, load, onPush, keepAlive, the 400 ms poll, selfLoad), moved here.
 
-import { captureBackup, readBackup, restoreBackup } from "../../fm1backup.js";
+import { captureBackup, conditionalProjects, readBackup, restoreBackup } from "../../fm1backup.js";
 import { CMD, F, FLASH_OPT, FM6, fm6Bank, midiLearn, Link, parseMotionAll, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDeviceMenu, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
 
 export const isFelucca = (p) => /felucca/i.test(p.name || "") && p.state !== "disconnected";
@@ -483,10 +483,13 @@ export class Device {
     const proj = (archive.objects || []).filter((o) => o.id <= 5 && o.id !== 1 && o.size === 3840);
     return (!this.info.motionCap && proj.length > 0) || proj.some((o) => o.bytes && String.fromCharCode(...o.bytes.slice(0, 4)) === "FUNA" && o.bytes[66] > this.info.pcount);
   }
-  backupRestore(archive, onProgress) {
+  /* 1.5.5: the backup's projects this device cannot open (a step condition; no INFO 4B 01 here) -> their ids */
+  backupConditional(archive) { return this.info.cond ? [] : conditionalProjects(archive); }
+  /* skip: object ids left out (they stay as they are on the device) */
+  backupRestore(archive, onProgress, skip = []) {
     if (this.backupTooNew(archive)) { this.emit("error", new Error("backupNewer")); return Promise.resolve(false); }
     return this.op(async () => {
-      await restoreBackup((r, o) => this.rq(r, o), archive, onProgress);
+      await restoreBackup((r, o) => this.rq(r, o), archive, onProgress, { skip });
       await this.load();
       this.emit("reload", this);
       return true;
