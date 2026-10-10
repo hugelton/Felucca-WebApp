@@ -55,6 +55,8 @@ export function paramIcon(d, v, engine) {
     const k = v - d.min, m = /^E([1-8])$/.exec(n[k] || "");
     if (m) { const e = engine && engine(+m[1] - 1); return e ? paramIcon(e.desc, e.value) : MOD_SRC[0]; }
     if (n[k] === "DEPTH") return SPECIAL.ICON_LFO_WAVE;                         /* (1.4: the LFO's depth) */
+    if (n[k] === "VEL") return MOD_SRC[3];                                      /* (1.5.6: the note's velocity, as the VEL source) */
+    if (n[k] === "TIME") return BY_LABEL.TIME;                                  /* (1.5.6: a step played late) */
     return MOD_DST[Math.max(0, Math.min(MOD_DST.length - 1, k))];
   }
   if ((d.label === "WAVE" || d.label === "WAVE2") && n.length && v != null && BY_WAVE[n[v - d.min]]) return BY_WAVE[n[v - d.min]];
