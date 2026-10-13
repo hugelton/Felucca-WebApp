@@ -171,9 +171,9 @@ export class Device {
     if (m.sel !== this.sel) { this.sel = m.sel; this.needReload = true; }   /* selected on the device, push missed */
     this.emit("mix", m);
   }
-  async syncPreferences() {
+  async syncPreferences(fresh = false) {
     if (!this.info.uiCaps) return;
-    this.preferences = await readDevicePreferences((r, o) => this.rq(r, o), this.info, this.names, this.preferences);
+    this.preferences = await readDevicePreferences((r, o) => this.rq(r, o), this.info, this.names, this.preferences, fresh);
     if (this.preferences && this.preferences.slots) this.bank = this.preferences.slots;
     this.emit("preferences", this.preferences);
   }
@@ -546,6 +546,24 @@ export class Device {
       return r.rc;
     });
   }
+  /* CUSTOM palette (1.6, INFO 45 01 5): the device's own, or with none stored the palette in use -> this.palette
+     {stored, active, c: [RGB565 x 5]} (not pushed: read when settings show and after each change) */
+  async readPalette() {
+    if (!this.info.customPalette) { this.palette = null; return null; }
+    try { this.palette = parse[CMD.PALETTE_GET](await this.rq(req.paletteGet())); } catch (e) { if (e.message === "closed") throw e; this.palette = null; }
+    this.emit("palette", this.palette);
+    return this.palette;
+  }
+  /* op 0 show c on the device (RAM only), 1 store c and use it, 2 remove it, 3 drop the preview -> rc (0 saved, 1 refused,
+     3 not saved, 4 saved at STOP; any colours are taken: the editor warns); a stored or removed palette changes COLOR's values: the lists follow */
+  paletteSet(op, c) {
+    return this.op(async () => {
+      const r = parse[CMD.PALETTE_SET](await this.rq(req.paletteSet(op, c), op === 1 || op === 2 ? FLASH_OPT : undefined));
+      this.palette = { stored: r.stored, active: r.active, n: r.n, c: r.c };      /* (no event: the card is not rebuilt while a colour is dragged) */
+      if ((op === 1 || op === 2) && (r.rc === 0 || r.rc === 3 || r.rc === 4)) await this.syncPreferences(true);
+      return r.rc;
+    });
+  }
   /* FM6's voice bank on the device (1.4.1, INFO 56 01 32): FM6B_LIST -> this.fm6bank {n, valid, name, voices} */
   async readFm6Bank() {
     if (!this.info.fm6Bank) { this.fm6bank = null; return null; }
@@ -677,7 +695,7 @@ export class Device {
   async readMenu() {
     if (!this.info || !this.info.menuCount) return null;
     await this.idle();
-    const items = await this.op(async () => { const x = await readDeviceMenu((r, o) => this.rq(r, o), this.info); if (this.info.midiLearn) await this.readLearn(); return x; });
+    const items = await this.op(async () => { const x = await readDeviceMenu((r, o) => this.rq(r, o), this.info); if (this.info.midiLearn) await this.readLearn(); if (this.info.customPalette) await this.readPalette(); return x; });
     if (items) { this.menu = items; this.emit("menu", items); }
     return this.menu;
   }

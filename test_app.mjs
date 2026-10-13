@@ -157,6 +157,40 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
   await d.learnSet(75, 0, 9);
   ok(await d.learnSet(74, 0, null) === 0 && d.learn.entries.filter((x) => x.used).length === 1, "1.5: one CC cleared");
   ok(await d.learnSet(null) === 0 && d.learn.entries.every((x) => !x.used), "1.5: every CC cleared");
+  /* 1.6: CUSTOM palette through device.js, and palette.js's tokens == the firmware's (felucca/src/gfx.c palette_set, snapshot of
+     nine palettes from the host build: the five colours in, the eleven tokens out) */
+  {
+    const pal = await import("./app/src/palette.js");
+    const dp = proto.makeMockDevice({ auto: false }), dd = new Device(dp.access);
+    await dd.open();
+    await dd.readMenu();
+    ok(dd.info.customPalette === 5 && dd.palette && !dd.palette.stored && dd.palette.c.length === 5, "1.6: CUSTOM palette read (none stored, five colours to start from)");
+    const good = [pal.rgb565(8, 16, 40), pal.rgb565(24, 32, 64), pal.rgb565(240, 240, 255), pal.rgb565(120, 200, 255), pal.rgb565(255, 160, 40)];
+    ok(await dd.paletteSet(0, good) === 0 && !dd.palette.stored, "1.6: a preview (op 0) stores nothing");
+    ok(await dd.paletteSet(1, [0x0841, 0x2104, 0x2105, 0x2106, 0x2107]) === 0 && dd.palette.stored && !pal.readable([0x0841, 0x2104, 0x2105, 0x2106, 0x2107]), "1.6: colours hard to read: stored all the same (the editor warns)");
+    ok(await dd.paletteSet(1, good) === 0 && dd.palette.stored && dd.palette.active && dd.palette.c.join() === good.join(), "1.6: stored (op 1): in use, the five colours back");
+    ok(dd.preferences.palettes.length === 11 && dd.preferences.palettes[10] === "CUSTOM" && dd.preferences.state.palette === 10, "1.6: the theme list follows: CUSTOM last, in use");
+    ok(await dd.paletteSet(2) === 0 && !dd.palette.stored && dd.preferences.palettes.length === 10 && dd.preferences.state.palette < 10, "1.6: removed (op 2): ten palettes again");
+    ok(await dd.paletteSet(3) === 0, "1.6: a preview dropped (op 3)");
+    const SNAP = [
+  {"c":[2113,8452,52825,61277,65503],"t":{"mid":38034,"dim":23243,"line":10597,"sel":48631,"tint":8484,"ink":2113,"rec":64073,"raise":14759,"key":42228,"lane":14759,"grid":10597,"light":0}},
+  {"c":[129,4419,59324,22191,65195],"t":{"mid":42388,"dim":25484,"line":10694,"sel":17772,"tint":2371,"ink":129,"rec":64073,"raise":10758,"key":46614,"lane":6596,"grid":8613,"light":0}},
+  {"c":[63356,59097,8419,2728,43457],"t":{"mid":25322,"dim":40113,"line":52823,"sel":15276,"tint":57050,"ink":63356,"rec":47301,"raise":52758,"key":21064,"lane":52855,"grid":56952,"light":1}},
+  {"c":[0,10565,65503,65344,1855],"t":{"mid":46454,"dim":27469,"line":12646,"sel":52672,"tint":8416,"ink":0,"rec":64073,"raise":16904,"key":50712,"lane":16868,"grid":14759,"light":0}},
+  {"c":[0,193,38709,16108,65503],"t":{"mid":27919,"dim":17161,"line":6468,"sel":13706,"tint":2273,"ink":0,"rec":64073,"raise":4483,"key":30096,"lane":2402,"grid":2338,"light":0}},
+  {"c":[0,0,65535,65535,65535],"t":{"mid":46486,"dim":27469,"line":12646,"sel":52825,"tint":8452,"ink":0,"rec":64073,"raise":8452,"key":50744,"lane":6339,"grid":4226,"light":0}},
+  {"c":[65535,65535,0,0,0],"t":{"mid":19049,"dim":38066,"line":52889,"sel":12710,"tint":57083,"ink":65535,"rec":47301,"raise":57083,"key":14791,"lane":59196,"grid":61309,"light":1}},
+  {"c":[4660,22136,43981,61185,9029],"t":{"mid":31567,"dim":21201,"line":10867,"sel":50693,"tint":10962,"ink":4660,"rec":64073,"raise":24087,"key":35695,"lane":26262,"grid":24151,"light":0}},
+  {"c":[2016,31,63488,65504,2047],"t":{"mid":45664,"dim":27808,"line":13952,"sel":53216,"tint":10208,"ink":2016,"rec":47301,"raise":8219,"key":49600,"lane":6364,"grid":4125,"light":1}}];
+    let diff = 0;
+    for (const x of SNAP) {
+      const t = pal.derive(x.c);
+      for (const [k, v] of Object.entries(x.t)) if ((k === "light" ? +t.light : t[k]) !== v) diff++;
+    }
+    ok(diff === 0, `1.6: palette.js derives the firmware's tokens (${SNAP.length} palettes, ${SNAP.length * 12} values)`);
+    ok(pal.hex(0xffff) === "#ffffff" && pal.fromHex("#ffffff") === 0xffff && pal.fromBytes(...pal.bytes(0xce59)) === 0xce59 && pal.readable(pal.BUILTIN[6].c), "1.6: colour conversions, the readable rule");
+    dd.close(); dp.stop();
+  }
   const fun = (np) => { const b = new Uint8Array(3840); b.set([0x46, 0x55, 0x4E, 0x41]); b[66] = np; return { id: 2, size: 3840, bytes: b }; };
   ok(!d.backupTooNew({ objects: [fun(111)] }), "1.5: a 1.5 project restores on 1.5");
   d.info.pcount = 104;

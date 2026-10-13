@@ -383,3 +383,22 @@ a.iconbtn { text-decoration: none; }
 @media (max-width: 400px) { #store-t { display: none; } .store .bar { width: 48px; } }   /* (the dialog has the numbers) */
 .chip.upd { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; text-decoration: none; background: var(--accent); color: var(--ink); }
 @media (max-width: 640px) { #update-t { display: none; } }
+
+/* CUSTOM palette (settings): five colour inputs and a sample of what the device derives from them */
+.palrows { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.palrow { display: grid; gap: 4px; justify-items: center; }
+.palrow .lbl { font-size: .625rem; }
+input.colour { width: 100%; min-width: 36px; height: 36px; padding: 0; border: 1px solid var(--line); border-radius: var(--r-s); background: none; cursor: pointer; }
+.paldemo { margin-top: 10px; padding: 10px; border-radius: var(--r-s); background: var(--pbg); }
+.paldemo .pd-card { display: grid; gap: 6px; padding: 10px; border-radius: var(--r-s); background: var(--psurf); color: var(--ptext); }
+.paldemo .pd-text { font-weight: 600; }
+.paldemo .pd-mid { font-size: .75rem; color: var(--pmid); }
+.paldemo .pd-row { display: flex; gap: 8px; align-items: center; font-size: .75rem; }
+.paldemo .pd-sel { padding: 2px 8px; border-radius: 4px; background: var(--psel); color: var(--ptext); }
+.paldemo .pd-theme { color: var(--ptheme); }
+.paldemo .pd-acc { color: var(--pacc); }
+.paldemo .pd-rec { padding: 0 6px; border-radius: 4px; background: var(--prec); color: var(--pink); }
+.paldemo .pd-keys { display: flex; gap: 4px; }
+.paldemo .pd-key { width: 18px; height: 10px; border-radius: 2px; background: var(--pkey); }
+.palwarn { margin: 8px 0 0; font-size: .75rem; color: var(--accent); }
+.livechk { display: inline-flex; gap: 6px; align-items: center; font-size: .75rem; color: var(--mid); }

@@ -12,6 +12,7 @@ import { MENU_ICON, MENU_TAB_ICON } from "./paramicons.js";
 import { knownLayout } from "./device.js";
 import { LANGS, getLang, setLang, t } from "./text.js";
 import { midiLearn } from "./proto.js";
+import { BUILTIN, ROLES, derive, fromHex, hex, unreadable } from "./palette.js";
 
 /* the site has the emulator beside the editor (make_site.py --try) */
 /* (content "1": the release's emulator; "next": a preview of the next version) */
@@ -122,6 +123,54 @@ export function settingsScreen(root, ui) {
     return c;
   }
 
+  /* CUSTOM, the user's palette (1.6, INFO 45 01 5): five colours (BG SURF TEXT THEME ACCENT), shown on the device as they
+     change (op 0: RAM only), stored with SAVE (op 1: the palette in use from then on, saved with the settings), gone with
+     REMOVE. The sample is what the device derives from them (palette.js, the port of gfx.c); colours that are hard to read (the
+     rule in proto.js) get a warning, nothing more: they are shown and saved as chosen (REMOVE and COLOR are the way back) */
+  function paletteCard() {
+    if (!dev.info.customPalette || !dev.palette) return null;
+    const P = dev.palette;
+    let c = P.c.slice(), t0 = 0, timer = 0, sent = "";
+    const inputs = ROLES.map((role, i) => el("input", { type: "color", class: "colour", "aria-label": role, value: hex(c[i]), oninput: (e) => { c[i] = fromHex(e.target.value); changed(); } }));
+    const demo = el("div", { class: "paldemo", "aria-hidden": "true" },
+      el("div", { class: "pd-card" }, el("b", { class: "pd-text", text: "FELUCCA" }), el("span", { class: "pd-mid", text: "TRACK 1 · 120 BPM" }),
+        el("div", { class: "pd-row" }, el("span", { class: "pd-sel", text: "SELECT" }), el("span", { class: "pd-theme", text: "THEME" }), el("span", { class: "pd-acc", text: "●" }), el("span", { class: "pd-rec", text: "REC" })),
+        el("div", { class: "pd-keys" }, ...[0, 1, 2, 3, 4, 5].map(() => el("i", { class: "pd-key" })))));
+    const warn = el("p", { class: "palwarn", role: "status" });
+    const say = (rc) => ui.prefResult(rc);
+    const names = (u) => u.map((x) => `${x.a} / ${x.b}`).join(", ");
+    function paint() {
+      const d = derive(c), css = (x) => hex(x);
+      demo.style.cssText = `--pbg:${css(d.bg)};--psurf:${css(d.surf)};--ptext:${css(d.text)};--ptheme:${css(d.theme)};--pacc:${css(d.accent)};--pmid:${css(d.mid)};--pdim:${css(d.dim)};--psel:${css(d.sel)};--pink:${css(d.ink)};--prec:${css(d.rec)};--pkey:${css(d.key)};--praise:${css(d.raise)};`;
+      const u = unreadable(c);
+      warn.textContent = u.length ? `${t("paletteHard")}: ${names(u)}` : "";
+      warn.hidden = !u.length;
+      inputs.forEach((e, i) => { e.value = hex(c[i]); });
+    }
+    /* the device shows it at once, at most every 120 ms (the last one always goes) */
+    function changed() {
+      paint();
+      if (!live.checked) return;
+      const go = async () => { timer = 0; t0 = Date.now(); const key = c.join(); if (key === sent) return; sent = key; await dev.paletteSet(0, c.slice()); };
+      const wait = Math.max(0, 120 - (Date.now() - t0));
+      if (!timer) timer = setTimeout(go, wait);
+    }
+    const live = el("input", { type: "checkbox", checked: true, "aria-label": t("palettePreview") });
+    const from = el("select", { "aria-label": t("paletteFrom"), onchange: (e) => { if (e.target.value === "") return; c = BUILTIN[+e.target.value].c.slice(); e.target.value = ""; changed(); } },
+      el("option", { value: "", text: t("paletteFrom") }), ...BUILTIN.map((b, i) => el("option", { value: i, text: b.name })));
+    const save = el("button", { type: "button", class: "btn primary", onclick: async () => { say(await dev.paletteSet(1, c.slice())); } }, ic("symbol_check"), t("paletteSave"));
+    const revert = el("button", { type: "button", class: "btn", onclick: async () => { await dev.paletteSet(3); sent = ""; c = dev.palette.c.slice(); paint(); } }, ic("control_arrow_loop"), t("paletteRevert"));
+    const remove = el("button", { type: "button", class: "btn", disabled: !P.stored, onclick: async () => { if (await ui.confirm(`${t("paletteRemove")}?`)) { say(await dev.paletteSet(2)); c = dev.palette.c.slice(); sent = ""; paint(); } } }, ic("symbol_trash"), t("paletteRemove"));
+    const out = card(t("customPalette"), "symbol_eye",
+      el("div", { class: "palrows" }, ...ROLES.map((role, i) => el("label", { class: "palrow" }, el("span", { class: "lbl", text: role }), inputs[i]))),
+      demo, warn,
+      el("div", { class: "addrow" }, from, el("label", { class: "livechk" }, live, t("palettePreview"))),
+      el("div", { class: "acts wrap" }, save, revert, remove));
+    out.aside.textContent = P.stored ? (P.active ? "CUSTOM" : `CUSTOM · ${t("off")}`) : "—";
+    paint();
+    return out;
+  }
+
   function editor() {
     const th = THEMES.indexOf(store.get("felucca-editor-theme", "system"));
     const k = SIZES.indexOf(+store.get("felucca-editor-size", "1"));
@@ -163,6 +212,8 @@ export function settingsScreen(root, ui) {
       if (dev && dev.dump) grid.append(...menu());
       const ln = dev && dev.dump ? learnCard() : null;
       if (ln) grid.append(ln);
+      const pal = dev && dev.dump ? paletteCard() : null;
+      if (pal) grid.append(pal);
       grid.append(editor(), system());
       root.replaceChildren(grid);
     },

@@ -49,7 +49,9 @@ const E = vm.runInNewContext(proto + `
    readDeviceMenu: typeof readDeviceMenu === "undefined" ? null : readDeviceMenu,
    parseMotionAll: typeof parseMotionAll === "undefined" ? null : parseMotionAll,
    fm6Bank: typeof fm6Bank === "undefined" ? null : fm6Bank, crc32: typeof crc32 === "undefined" ? null : crc32,
-   midiLearn: typeof midiLearn === "undefined" ? null : midiLearn })`,
+   midiLearn: typeof midiLearn === "undefined" ? null : midiLearn,
+   PAL_BUILTIN: typeof PAL_BUILTIN === "undefined" ? null : PAL_BUILTIN, palReadable: typeof palReadable === "undefined" ? null : palReadable,
+   palUnreadable: typeof palUnreadable === "undefined" ? null : palUnreadable, palLuma: typeof palLuma === "undefined" ? null : palLuma })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 async function editorMock() {
@@ -1324,6 +1326,62 @@ async function editorMidiLearn() {
   l2.close(); old.stop();
 }
 
+/* 1.6 CUSTOM palette (EDITOR_PROTOCOL.md "CUSTOM palette"; PALETTE_GET / PALETTE_SET 80, 81, INFO 45 01 5; the mock as editor_palette.c) */
+async function editorCustomPalette() {
+  if (!E.PAL_BUILTIN) { console.log("CUSTOM palette: (editor.html has none)".padEnd(64) + " skip"); return; }
+  const C = E.CMD, rgb = (r, g, b) => (r >> 3) << 11 | (g >> 2) << 5 | b >> 3;
+  const m = E.makeMockDevice({ auto: false });
+  const link = new E.Link((d) => [...m.access.outputs.values()][0].send(d), { timeout: 200 });
+  [...m.access.inputs.values()][0].onmidimessage = (e) => link.receive(e.data);
+  const rq = (x, o) => link.request(x, o);
+  const info = E.parse[C.INFO](await rq(E.req.info()));
+  ok(C.PALETTE_GET === 80 && C.PALETTE_SET === 81 && info.customPalette === 5 && info.cond === 11, "CUSTOM palette: INFO 45 01 5 after the condition tag; commands 80, 81");
+  const get = async () => E.parse[C.PALETTE_GET](await rq(E.req.paletteGet()));
+  const set = async (op, c) => E.parse[C.PALETTE_SET](await rq(E.req.paletteSet(op, c)));
+  let g = await get();
+  ok(!g.stored && !g.active && g.n === 5 && g.c.length === 5 && g.c[0] === E.PAL_BUILTIN[0].c[0], "CUSTOM palette: GET: none stored, the palette in use to start from");
+  const good = [rgb(8, 16, 40), rgb(24, 32, 64), rgb(240, 240, 255), rgb(120, 200, 255), rgb(255, 160, 40)];
+  const flat = [rgb(80, 80, 80), rgb(90, 90, 90), rgb(100, 100, 100), rgb(110, 110, 110), rgb(120, 120, 120)];
+  ok(!E.palReadable(flat) && E.palReadable(good), "CUSTOM palette: the editor's rule: flat greys are hard to read, the good set is not");
+  ok(E.PAL_BUILTIN.length === 10 && E.PAL_BUILTIN.every((p) => E.palReadable(p.c)), "CUSTOM palette: every built-in palette passes the rule");
+  const raw = await rq([C.PALETTE_SET, [1, 32, 0, 0, ...new Array(12).fill(0)]]);
+  ok(raw[0] === 1, "CUSTOM palette: a value past its range (red 32): rc 1");
+  const hard = await set(1, flat);
+  g = await get();
+  ok(hard.rc === 0 && g.stored && g.active && g.c.join() === flat.join(), "CUSTOM palette: colours that are hard to read are stored all the same (the editor only warns)");
+  await set(2);
+  const un = E.palUnreadable(flat);
+  ok(un.length === 4 && un[0].a === "TEXT" && un[0].b === "BG" && un[0].min === 128, "CUSTOM palette: the pairs that fail are named (TEXT / BG 128 ..)");
+  let r = await set(0, good);
+  g = await get();
+  ok(r.rc === 0 && !r.stored && !g.stored && r.c.length === 5, "CUSTOM palette: op 0 (preview) stores nothing");
+  r = await set(1, good);
+  g = await get();
+  ok(r.rc === 0 && r.stored && r.active && g.stored && g.active && g.c.join() === good.join(), "CUSTOM palette: op 1 stores and uses them; GET returns the five colours back (RGB565)");
+  const pals = E.parse[C.UI_PALETTES](await rq(E.req.uiPalettes()));
+  const st = E.parse[C.UI_STATE](await rq(E.req.uiState()));
+  ok(pals.length === 11 && pals[10] === "CUSTOM" && st.palette === 10, "CUSTOM palette: UI_PALETTES lists CUSTOM last, UI_STATE's palette is 10 while it is in use");
+  const set3 = E.parse[C.UI_SET](await rq(E.req.uiSet(0, 3)));
+  const st2 = E.parse[C.UI_STATE](await rq(E.req.uiState()));
+  const g2 = await get();
+  ok(set3.rc === 0 && st2.palette === 3 && g2.stored && !g2.active, "CUSTOM palette: a built-in palette chosen leaves CUSTOM stored (not in use)");
+  const set10 = E.parse[C.UI_SET](await rq(E.req.uiSet(0, 10)));
+  ok(set10.rc === 0 && (await get()).active && E.parse[C.UI_STATE](await rq(E.req.uiState())).palette === 10, "CUSTOM palette: UI_SET 0 with 10 selects it");
+  r = await set(2);
+  const pals2 = E.parse[C.UI_PALETTES](await rq(E.req.uiPalettes()));
+  const bad10 = E.parse[C.UI_SET](await rq(E.req.uiSet(0, 10)));
+  ok(r.rc === 0 && !r.stored && pals2.length === 10 && bad10.rc === 1, "CUSTOM palette: op 2 removes it: ten palettes again, UI_SET 0 with 10: rc 1");
+  r = await set(3);
+  ok(r.rc === 0, "CUSTOM palette: op 3 drops a preview (rc 0)");
+  link.close(); m.stop();
+  const old = E.makeMockDevice({ auto: false, noPalette: true });
+  const l2 = new E.Link((d) => [...old.access.outputs.values()][0].send(d), { timeout: 100 });
+  [...old.access.inputs.values()][0].onmidimessage = (ev) => l2.receive(ev.data);
+  const i2 = E.parse[C.INFO](await l2.request(E.req.info()));
+  ok(i2.customPalette === 0 && i2.cond === 11, "CUSTOM palette: firmware before 1.6: no 45 tag (the editor shows no palette card)");
+  l2.close(); old.stop();
+}
+
 /* the variants real 6-operator voice files have (parseSysex), every one built here byte by byte */
 function fm6Tolerant(F6, voices, bank, one) {
   const U = (...xs) => Uint8Array.from(xs.flatMap((x) => Array.from(x)));
@@ -1758,6 +1816,7 @@ await editorSessions();
 await editorFm6();
 await editorFm6Bank();
 await editorMidiLearn();
+await editorCustomPalette();
 fm6TabNoBank();
 await editorFm4();
 editorTabs();

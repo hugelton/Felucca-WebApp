@@ -50,7 +50,7 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
   FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, MENU_DESC: 72, MENU_SET: 73,
-  FM6B_BEGIN: 74, FM6B_WRITE: 75, FM6B_END: 76, FM6B_LIST: 77, LEARN_GET: 78, LEARN_SET: 79 };
+  FM6B_BEGIN: 74, FM6B_WRITE: 75, FM6B_END: 76, FM6B_LIST: 77, LEARN_GET: 78, LEARN_SET: 79, PALETTE_GET: 80, PALETTE_SET: 81 };
 /* frames the device sends on its own (while WATCH is on); never replies */
 const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
 /* user preset bank: name 1..12 printable ASCII, a 16-step pattern of (note, flags 1 acc 2 slide 4 tie) */
@@ -168,7 +168,7 @@ const parse = {
       /* the tagged blocks from 53 01 on, walked by their known lengths (an unknown tag ends the walk): 1.2's 57 01 n =
          SONG sections with a slot per track (n lanes; SONG ops 4..7) */
       /* (1.4.1's 56 01 n: FM6's voice bank, n voices: cmds 74..77, SLOT 9.. = B1..Bn) */
-      const LEN = { 0x53: 1, 0x50: 1, 0x4E: 1, 0x52: 1, 0x4C: 1, 0x41: 2, 0x54: 1, 0x57: 1, 0x56: 1, 0x43: 1, 0x4B: 1 };   /* (1.5.5's 4B 01 n: a step's condition, n of them) */   /* (1.5's 43 01 n: MIDI LEARN, cmds 78, 79) */
+      const LEN = { 0x53: 1, 0x50: 1, 0x4E: 1, 0x52: 1, 0x4C: 1, 0x41: 2, 0x54: 1, 0x57: 1, 0x56: 1, 0x43: 1, 0x4B: 1, 0x45: 1 };   /* (1.5.5's 4B 01 n: a step's condition, n of them) */   /* (1.5's 43 01 n: MIDI LEARN, cmds 78, 79) */
       for (let q = p + 4; q + 2 < trailer.length && trailer[q + 1] === 1 && LEN[trailer[q]]; q += 2 + LEN[trailer[q]]) {
         if (trailer[q] === 0x57) o.songLanes = trailer[q + 2];
         if (trailer[q] === 0x41 && q + 3 < trailer.length) o.motionCap = trailer[q + 2] | trailer[q + 3] << 7;   /* 1.2: 128 */
@@ -176,6 +176,7 @@ const parse = {
         if (trailer[q] === 0x56) o.fm6Bank = trailer[q + 2];                                                    /* 1.4.1: 32 */
         if (trailer[q] === 0x43) o.midiLearn = trailer[q + 2];                                                  /* 1.5: 16 */
         if (trailer[q] === 0x4B) o.cond = trailer[q + 2];                                                       /* 1.5.5: 11 */
+        if (trailer[q] === 0x45) o.customPalette = trailer[q + 2];                                              /* 1.6: 5 (CUSTOM palette, cmds 80, 81) */
       }
     }
     o.menuCount = o.menuCount || 0;
@@ -185,6 +186,7 @@ const parse = {
     o.fm6Bank = o.fm6Bank || 0;                   /* FM6's voice bank (1.4.1): 0 none */
     o.midiLearn = o.midiLearn || 0;               /* MIDI LEARN's entries (1.5): 0 none */
     o.cond = o.cond || 0;                         /* a step's conditions (1.5.5): 0 none (no condition byte in steps) */
+    o.customPalette = o.customPalette || 0;       /* CUSTOM palette's colours (1.6): 0 none (no PALETTE_GET / _SET) */
     o.categories = o.motionCap > 0;               /* user preset categories (1.2 / 1.4, with the same tags) */
     return o;
   },
@@ -346,6 +348,15 @@ const parse = {
     return o;
   },
   [CMD.LEARN_SET](a) { return { rc: a[0], ...parse[CMD.LEARN_GET](a.slice(1)) }; },
+  /* CUSTOM palette (1.6, info.customPalette): flags (bit 0 stored, bit 1 in use), n, n x (r5, g6, b5) -> {stored, active, c: [RGB565 x n]}
+     (with none stored: the palette in use); PALETTE_SET: rc (0 saved, 1 arguments, 3 RAM only, 4 saved at STOP), then that. The device takes any
+     colours: the editor warns of the ones that are hard to read (palUnreadable) */
+  [CMD.PALETTE_GET](a) {
+    const n = a[1] ?? 0, c = [];
+    for (let i = 0; i < n; i++) c.push((a[2 + 3 * i] << 11) | (a[3 + 3 * i] << 5) | a[4 + 3 * i]);
+    return { stored: !!(a[0] & 1), active: !!(a[0] & 2), n, c };
+  },
+  [CMD.PALETTE_SET](a) { return { rc: a[0], ...parse[CMD.PALETTE_GET](a.slice(1)) }; },
   /* MENU settings: kind 0 an enum (one name per value min..max), 1 a number with a unit; id 127: no item at index.
      1.0.5: then the item's tab on the device (index, name; tab -1 / "" from older firmware); a kind this editor does
      not know: no tab read (its bytes are not known) */
@@ -455,6 +466,10 @@ const req = {
   learnSet: (cc, track, id) => [CMD.LEARN_SET, [0, cc & 0x7F, track & 0x7F, id & 0x7F]],
   learnClear: (cc) => [CMD.LEARN_SET, [1, cc & 0x7F]],
   learnClearAll: () => [CMD.LEARN_SET, [2]],
+  /* CUSTOM palette (info.customPalette): read it; op 0 show five RGB565 colours (RAM only), op 1 store them (and use them),
+     op 2 remove it, op 3 drop the preview */
+  paletteGet: () => [CMD.PALETTE_GET, []],
+  paletteSet: (op, c) => [CMD.PALETTE_SET, [op & 0x7F, ...(op <= 1 ? c.flatMap((x) => [x >> 11, (x >> 5) & 63, x & 31]) : [])]],
   /* MENU settings (firmware with info.menuCount) */
   menuDesc: (i) => [CMD.MENU_DESC, [i & 0x7F]],
   menuSet: (id, v) => [CMD.MENU_SET, [id & 0x7F, ...v14enc(v)]],
@@ -1320,6 +1335,23 @@ const midiLearn = {
   clear: async (rq, cc) => parse[CMD.LEARN_SET](await rq(cc === undefined ? req.learnClearAll() : req.learnClear(cc))),
 };
 
+/* CUSTOM palette (1.6, EDITOR_PROTOCOL.md "CUSTOM palette"; firmware with info.customPalette): five RGB565 colours, BG SURF
+   TEXT THEME ACCENT. The lightness the device judges them by (gfx.c ux_luma) and its rule (favorites.c cpal_ok): TEXT against
+   BG at least 128 apart, TEXT against SURF 96, THEME against BG 80, ACCENT against BG 64 -> the pairs that fail. The
+   built-in palettes' five colours are a place to start from (tools/gen_ui_palettes.py) */
+const PAL_ROLES = ["BG", "SURF", "TEXT", "THEME", "ACCENT"];
+const PAL_BUILTIN = [
+  ["GREY", 0x0841, 0x2104, 0xce59, 0xef5d, 0xffdf], ["GREEN", 0x0081, 0x1143, 0xe7bc, 0x56af, 0xfeab],
+  ["AMBER", 0x1061, 0x2902, 0xf77b, 0xfd45, 0x66bc], ["ICE", 0x0883, 0x1126, 0xe79f, 0x55dd, 0xfc6c],
+  ["VIOLET", 0x1063, 0x20e7, 0xf75f, 0xb45e, 0x6f35], ["ROSE", 0x1842, 0x30a5, 0xff5e, 0xf396, 0xfead],
+  ["PAPER", 0xf77c, 0xe6d9, 0x20e3, 0x0aa8, 0xa9c1], ["HI-CON", 0x0000, 0x2945, 0xffdf, 0xff40, 0x073f],
+  ["NIGHT", 0x0000, 0x00c1, 0x9735, 0x3eec, 0xffdf], ["MONO", 0x0000, 0x0000, 0xffff, 0xffff, 0xffff],
+].map(([name, ...c]) => ({ name, c }));
+const palLuma = (c) => (Math.trunc((c >> 11) * 255 / 31) * 54 + Math.trunc(((c >> 5) & 63) * 255 / 63) * 183 + Math.trunc((c & 31) * 255 / 31) * 19) >> 8;
+const PAL_RULE = [["TEXT", 2, "BG", 0, 128], ["TEXT", 2, "SURF", 1, 96], ["THEME", 3, "BG", 0, 80], ["ACCENT", 4, "BG", 0, 64]];
+const palUnreadable = (c) => PAL_RULE.filter(([, a, , b, min]) => Math.abs(palLuma(c[a]) - palLuma(c[b])) < min).map(([x, , y, , min]) => ({ a: x, b: y, min }));
+const palReadable = (c) => palUnreadable(c).length === 0;
+
 /* ----------------------------------------------------------------- DIGITAL --- */
 /* DIGITAL (engine 1, four-operator FM) was replaced by FM6 (1.0): the firmware keeps engine 1 reserved (its name
    "-"; a FELUCCA_FM4=1 build has DIGITAL back) and turns every DIGITAL sound into an FM6 one with a patch of its own
@@ -1727,6 +1759,7 @@ function makeMockDevice(opt = {}) {
     uiCaps: opt.legacy || opt.v3 || opt.v5 ? 0 : opt.uiCaps ?? 9,
     palette: 0, font: 0, monitor: 0, filter: 0, bankSig: 0,
     palettes: ["GREY", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON", "NIGHT", "MONO"],
+    custom: { stored: false, active: false, c: PAL_BUILTIN[0].c.slice(), preview: null },   /* CUSTOM palette (1.6; palette: the base) */
     favorites: Array.from({ length: ENG.length + 1 }, () => []),
     menu: MENU.map((m) => m.def),                   /* the MENU settings' values (COLOR: palette) */
     vbank: { valid: false, name: "", voices: new Array(32).fill(null), tx: null },   /* FM6's voice bank (fm6_vbank.c) */
@@ -1860,9 +1893,12 @@ function makeMockDevice(opt = {}) {
     if (opt.v3 && cmd >= CMD.TRACK_PARAM) return null;
     if (opt.v5 && cmd >= CMD.SONG) return null;
     if (!st.uiCaps && cmd >= CMD.UI_STATE) return null;
+    const palNames = () => st.custom.stored ? [...st.palettes, "CUSTOM"] : st.palettes;       /* (1.6: CUSTOM last while one is stored) */
+    const palCur = () => st.custom.stored && st.custom.active ? st.palettes.length : st.palette;
+    const palChoose = (x) => { if (x >= st.palettes.length) st.custom.active = true; else { st.custom.active = false; st.palette = x; } st.custom.preview = null; };
     const uiState = () => {
       const sig = JSON.stringify(st.favorites).split("").reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, st.filter);
-      [st.uiCaps, st.palette, st.uiCaps & 2 ? st.font : 127, st.uiCaps & 4 ? st.monitor : 127, st.uiCaps & 8 ? st.filter : 127].forEach(b);
+      [st.uiCaps, palCur(), st.uiCaps & 2 ? st.font : 127, st.uiCaps & 4 ? st.monitor : 127, st.uiCaps & 8 ? st.filter : 127].forEach(b);
       for (const n of [sig, st.bankSig]) for (let i = 0; i < 4; i++) b(n >>> (i * 7));
     };
     const NB = st.bank.length;
@@ -1960,19 +1996,19 @@ function makeMockDevice(opt = {}) {
         b(0);
         break;
       case CMD.UI_STATE: uiState(); break;
-      case CMD.UI_PALETTES: b(st.palettes.length); st.palettes.forEach(s); break;
+      case CMD.UI_PALETTES: b(palNames().length); palNames().forEach(s); break;
       case CMD.UI_SET: {
         const id = a[0], val = a[1], key = ["palette", "font", "monitor", "filter"][id];
-        const rc = a.length !== 2 || !key ? 1 : !(st.uiCaps & 1 << id) ? 2 : val >= (id === 0 ? st.palettes.length : id === 2 ? 3 : 2) ? 1 : 0;
-        if (!rc) st[key] = val;
+        const rc = a.length !== 2 || !key ? 1 : !(st.uiCaps & 1 << id) ? 2 : val >= (id === 0 ? palNames().length : id === 2 ? 3 : 2) ? 1 : 0;
+        if (!rc) { if (id === 0) palChoose(val); else st[key] = val; }
         b(rc || (opt.noFlash ? 3 : opt.deferSettings ? 4 : 0)); b(id ?? 127); b(val ?? 127); uiState(); break;
       }
       case CMD.MENU_DESC: {
         if (opt.noMenu || opt.noFm6 || !syncCaps() || a.length !== 1) return null;
-        const i = a[0], m = MENU[i], names = m && (m.names || st.palettes);
+        const i = a[0], m = MENU[i], names = m && (m.names || palNames());
         b(i);
         if (!m) { b(127); break; }
-        b(m.id); b(m.kind || 0); v(m.id === 0 ? st.palette : m.g != null ? st.g[m.g] : st.menu[i]);
+        b(m.id); b(m.kind || 0); v(m.id === 0 ? palCur() : m.g != null ? st.g[m.g] : st.menu[i]);
         if (m.kind === 1) { v(m.min); v(m.max); s(m.name); s(m.unit); }   /* (1.2 TUNE: a number, its unit) */
         else { v(0); v(names.length - 1); s(m.name); names.forEach(s); }
         if (!opt.noMenuTabs) { b(m.tab); s(MENU_TABS[m.tab]); }   /* (1.0.5: the tab; opt.noMenuTabs: as 1.0.4) */
@@ -1982,8 +2018,8 @@ function makeMockDevice(opt = {}) {
         if (opt.noMenu || opt.noFm6 || !syncCaps() || a.length !== 3) return null;
         const i = MENU.findIndex((m) => m.id === a[0]), m = MENU[i], val = v14dec(a[1], a[2]);
         if (!m) { b(1); b(a[0]); v(val); break; }
-        const x = m.kind === 1 ? Math.max(m.min, Math.min(m.max, val)) : Math.max(0, Math.min((m.names || st.palettes).length - 1, val));
-        if (m.id === 0) st.palette = x; else if (m.g != null) st.g[m.g] = x; else st.menu[i] = x;
+        const x = m.kind === 1 ? Math.max(m.min, Math.min(m.max, val)) : Math.max(0, Math.min((m.names || palNames()).length - 1, val));
+        if (m.id === 0) palChoose(x); else if (m.g != null) st.g[m.g] = x; else st.menu[i] = x;
         b(m.g != null || m.proj ? 0 : opt.noFlash ? 3 : opt.deferSettings ? 4 : 0); b(m.id); v(x);   /* (the project's: rc 0) */
         break;
       }
@@ -2040,7 +2076,7 @@ function makeMockDevice(opt = {}) {
           b(16);
           if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noBackup) { b(0x42); b(1); b(3); } if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(0); }
             if (syncCaps()) { b(0x53); b(1); b(syncCaps()); if (!opt.noFm6) { b(0x50); b(1); b(3); if (!opt.noMenu) { b(0x4E); b(1); b(MENU.length); } } if (ratchetOn()) { b(0x52); b(1); b(4); if (locksOn()) { b(0x4C); b(1); b(1);
-              if (capOn()) { b(0x41); b(1); b(0); b(1); b(0x54); b(1); b(16); if (!opt.noLanes) { b(0x57); b(1); b(NTRK); if (!opt.noVbank) { b(0x56); b(1); b(32); if (!opt.noLearn) { b(0x43); b(1); b(16); if (!opt.noCond) { b(0x4B); b(1); b(11); } } } } } } } } }   /* (FM6 v2: no bank, preset
+              if (capOn()) { b(0x41); b(1); b(0); b(1); b(0x54); b(1); b(16); if (!opt.noLanes) { b(0x57); b(1); b(NTRK); if (!opt.noVbank) { b(0x56); b(1); b(32); if (!opt.noLearn) { b(0x43); b(1); b(16); if (!opt.noCond) { b(0x4B); b(1); b(11); if (!opt.noPalette) { b(0x45); b(1); b(5); } } } } } } } } } }  /* (FM6 v2: no bank, preset
               patches; MENU settings; RATCH; locks; 1.2: 128 records, nudge, song lanes) */
         }
         break;
@@ -2188,6 +2224,28 @@ function makeMockDevice(opt = {}) {
         else b(1);
         b(16);
         for (const e of L) { if (e) { b(1); b(e.cc); b(e.track); b(e.id); } else { b(0); b(0); b(0); b(0); } }
+        break;
+      }
+      case CMD.PALETTE_GET: case CMD.PALETTE_SET: {  /* editor_palette.c, favorites.c cpal_ok */
+        if (opt.noFm6 || opt.noVbank || opt.noLearn || opt.noCond || opt.noPalette || !st.uiCaps) return null;
+        const cu = st.custom, save = opt.noFlash ? 3 : opt.deferSettings ? 4 : 0;
+        if (cmd === CMD.PALETTE_GET) {
+          if (a.length) return null;
+        } else {
+          let rc = 1;
+          if (a.length === 16 && a[0] <= 1) {
+            const c = [];
+            for (let i = 0; i < 5; i++) c.push(a[1 + 3 * i] << 11 | a[2 + 3 * i] << 5 | a[3 + 3 * i]);
+            const inRange = [0, 1, 2, 3, 4].every((i) => a[1 + 3 * i] <= 31 && a[2 + 3 * i] <= 63 && a[3 + 3 * i] <= 31);
+            rc = !inRange ? 1 : 0;                      /* (any colours: the editor warns) */
+            if (!rc && a[0] === 0) cu.preview = c;
+            else if (!rc) { cu.c = c; cu.stored = true; cu.active = true; cu.preview = null; rc = save; }
+          } else if (a.length === 1 && a[0] === 2) { cu.stored = false; cu.active = false; cu.preview = null; rc = save; }
+          else if (a.length === 1 && a[0] === 3) { cu.preview = null; rc = 0; }
+          b(rc);
+        }
+        b((cu.stored ? 1 : 0) | (cu.stored && cu.active ? 2 : 0)); b(5);
+        for (const x of (cu.stored ? cu.c : PAL_BUILTIN[st.palette].c)) { b(x >> 11); b((x >> 5) & 63); b(x & 31); }
         break;
       }
       case CMD.PRESET:
@@ -2464,10 +2522,10 @@ function makeMockDevice(opt = {}) {
   };
 }
 /* Optional preferences: old firmware is never probed with unknown commands. */
-async function readDevicePreferences(rq, info, names, previous = null) {
+async function readDevicePreferences(rq, info, names, previous = null, fresh = false) {
   if (!info.uiCaps) return null;
   const state = parse[CMD.UI_STATE](await rq(req.uiState()));
-  const palettes = previous ? previous.palettes : parse[CMD.UI_PALETTES](await rq(req.uiPalettes()));
+  const palettes = previous && !fresh && state.palette < previous.palettes.length ? previous.palettes : parse[CMD.UI_PALETTES](await rq(req.uiPalettes()));   /* (1.6: CUSTOM comes and goes) */
   let favorites = previous ? previous.favorites : [], slots = previous ? previous.slots : null;
   if (state.caps & 8) {
     if (!previous || state.bankSig !== previous.state.bankSig) slots = await bank.list(rq);
@@ -2540,6 +2598,6 @@ export {
   parseWav, resample, pyRound, normalize, FADE, takeSample, zoomView, autoTrim, rootFromName, buildSlot,
   LIB, paramKeys, sameKeys, remapParams, tailParams, patNorm, patternFromSteps, stepsFromPattern, patternUsed, gridFromSteps,
   cleanPatch, libraryFile, readLibraryFile, FLASH_OPT, bank, capturePatch, TRACK_OWN, P_CHORD, P_LANES, trackOwn, auditionPatch,
-  startWatch, mixer, FM6, fm6Bank, midiLearn, FM4, CATEGORIES, STEP_CONDS, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice, parseMotionAll,
+  startWatch, mixer, FM6, fm6Bank, midiLearn, PAL_ROLES, PAL_BUILTIN, palLuma, PAL_RULE, palUnreadable, palReadable, FM4, CATEGORIES, STEP_CONDS, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice, parseMotionAll,
   readDevicePreferences, aliasOf, divLength, enumShown, ENGINE_ORDER, engineOrder, devicePresetRows, MENU, MENU_TABS, readDeviceMenu,
 };
