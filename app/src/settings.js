@@ -79,7 +79,10 @@ export function settingsScreen(root, ui) {
       : { fmt: 0, min: m.min, max: m.max, def: m.min, label: m.name, unit: m.unit, names: [] };
     const r = paramRow(d, m.value, async (v) => {
       if (m.name === "USB SERIAL" && v !== m.value && !(await ui.confirm(t("usbQ")))) { r.update(m.value, false); return; }
-      ui.prefResult(await dev.menuSet(m.id, v));
+      const rc = await dev.menuSet(m.id, v);
+      ui.prefResult(rc);
+      /* (1.6.1: 2ND CORE takes effect from the next power-on, as the device says: told once it is set) */
+      if (m.name === "2ND CORE" && rc === 0) ui.say(() => t("afterRestart"));
     }, { icon: MENU_ICON[m.name] || null });   /* (no icon: the device's rows have none from 1.0.5) */
     /* (1.5.5: T1..T4 CHANNEL route only with MIDI IN = TRACK: dim otherwise, as the device draws them) */
     if (m.id >= 26 && m.id <= 29) r.el.classList.toggle("dim", !trackRoute());

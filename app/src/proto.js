@@ -27,6 +27,10 @@
 //   26..29 T1..T4 CHANNEL (1..16 OMNI OFF, values 0..17; the project's as MIDI IN, rc 0; MIDI), appended (INFO 4E 01 30)
 // - 1.5.5 (#209): a step's condition (INFO 4B 01 0B, a byte after the nudge; opt.noCond: not)
 // - 1.5.5 (#208): MENU item 30 AUTO SELECT (OFF, ON: MIDI IN notes select their track; a setting; MIDI) (INFO 4E 01 31)
+// - 1.5.5: MENU item 31 SCREEN WAKE (+MIDI, PANEL: what wakes SCREEN OFF and keeps the screen on; +MIDI a MIDI IN
+//   note-on too, the default; PANEL the panel only, as before; a setting; MIDI) (INFO 4E 01 32)
+// - 1.6.1 (Discussion #141): MENU item 32 2ND CORE (OFF, ON (BETA): the second core renders some of the parts, from the
+//   next power-on; a setting; SYSTEM) (INFO 4E 01 33)
 // - 1.2: ARP MODE (P_AMODE) gained DNUP UP+8 CONV DIVG PINKY THUMB WALK CHORD (values 7..14, appended)
 // - 1.2 (FUN10): P_COUNT 103, P_E0 95: LFO 2 SYNC TRIG POL (91..93) and QUANTIZE (94, the track's) before the engine
 //   values; MOTION holds 128 records (ops 1..7 reply as before: max 64, at most 64 listed; op 8 lists all, count / max
@@ -1582,6 +1586,12 @@ const MENU = [
   ...[0, 1, 2, 3].map((k) => ({ id: 26 + k, name: `T${k + 1} CHANNEL`, names: MENU_TCH, def: k, tab: 3, proj: true })),
   /* 1.5.5 (#208): MIDI IN notes into a track that is not selected select it (held off while the selected one plays) */
   { id: 30, name: "AUTO SELECT", names: ["OFF", "ON"], def: 0, tab: 3 },
+  /* 1.5.5: SCREEN OFF's wake: +MIDI (the default) a MIDI IN note-on wakes the screen and keeps it on, as the panel does
+     (the note plays); PANEL only the panel, as up to 1.5.1 */
+  { id: 31, name: "SCREEN WAKE", names: ["+MIDI", "PANEL"], def: 0, tab: 3 },
+  /* 1.6.1 (Discussion #141): ON, the second core renders some of the parts (a beta), from the next power-on; OFF (the
+     default) one core, as 1.6 */
+  { id: 32, name: "2ND CORE", names: ["OFF", "ON (BETA)"], def: 0, tab: 4 },
 ];
 /* the MENU settings the device offers, in its menu's order (firmware without them: []); rq as the other readers */
 async function readDeviceMenu(rq, info) {
