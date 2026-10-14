@@ -27,6 +27,7 @@
 //   26..29 T1..T4 CHANNEL (1..16 OMNI OFF, values 0..17; the project's as MIDI IN, rc 0; MIDI), appended (INFO 4E 01 30)
 // - 1.5.5 (#209): a step's condition (INFO 4B 01 0B, a byte after the nudge; opt.noCond: not)
 // - 1.5.5 (#208): MENU item 30 AUTO SELECT (OFF, ON: MIDI IN notes select their track; a setting; MIDI) (INFO 4E 01 31)
+// - 1.5.5 (#104): PHASE's E7 FOLD (0..127 PCT, a sine wavefolder; 0 = as before)
 // - 1.5.5: MENU item 31 SCREEN WAKE (+MIDI, PANEL: what wakes SCREEN OFF and keeps the screen on; +MIDI a MIDI IN
 //   note-on too, the default; PANEL the panel only, as before; a setting; MIDI) (INFO 4E 01 32)
 // - 1.6.1 (Discussion #141): MENU item 32 2ND CORE (OFF, ON (BETA): the second core renders some of the parts, from the
@@ -1656,7 +1657,7 @@ function makeMockDevice(opt = {}) {
       presets: [] },
     { name: "PHASE", titles: ["PHS", "LINE"], edit: [E("WAVE", ["SAW", "SQR", "PLS", "DSIN", "SPLS", "RSAW", "RTRI", "RTRP"], 0),
         E("WAVE2", ["-", "SAW", "SQR", "PLS", "DSIN", "SPLS", "RSAW", "RTRI", "RTRP"], 0), D("DCW", F.PCT, 0, 127, 60), D("ENV", F.PCT, 0, 127, 64),
-        D("DTN", F.INT, 0, 127, 0, null, "ct"), E("LINE", ["MIX", "RING"], 0), D("SUB", F.PCT, 0, 127, 0), NONE],
+        D("DTN", F.INT, 0, 127, 0, null, "ct"), E("LINE", ["MIX", "RING"], 0), D("SUB", F.PCT, 0, 127, 0), D("FOLD", F.PCT, 0, 127, 0)],
       presets: [P("BRASS", [0, 0, 30, 90, 0, 0, 0, 0], [8, 70, 90, 40], 0, 6), P("ORGAN", [3, 0, 40, 0, 0, 0, 0, 0], [0, 127, 127, 30], 0, 6),
         P("STRING", [0, 4, 50, 40, 12, 0, 0, 0], [40, 90, 100, 70], 0, 5), P("RESO", [5, 0, 60, 60, 0, 0, 0, 0], [0, 70, 30, 60], 0, 1),
         P("BELL", [6, 0, 80, 50, 0, 0, 0, 0], [0, 95, 0, 90], 0, 7), P("WIRE", [4, 7, 70, 40, 7, 0, 0, 0], [10, 80, 80, 60], 0, 4)] },
