@@ -98,7 +98,9 @@ def main(pkg, version, out, licences=None, try_dir=None, next_=False):
     if html.count(credit) != 1:
         raise SystemExit("index_pkg.html: the credits line changed; update make_site.py")
     if sample_pack_in((lic_root / "LICENSING.md").read_text(encoding="utf-8")):
-        html = html.replace(credit, "drum voices, Sample Pack and Fukiai icons (MIT)")
+        cc0 = any("CC0" in x for x in (lic_root / "LICENSING.md").read_text(encoding="utf-8").splitlines() if "Sample Pack" in x)
+        html = html.replace(credit, "drum voices, Sample Pack (CC0) and Fukiai icons (MIT)" if cc0 else   # (1.7.0 on)
+                            "drum voices, Sample Pack and Fukiai icons (MIT)")
     inst, ed, cl, fw = out / "webapp" / "installer", out / "webapp" / "editor", out / "webapp" / "editor-classic", out / "firmware"
     editor = bundle_page(HERE / "app" / "index.html")   # (before anything is written: a module the bundler refuses stops here)
     rel = '<meta name="felucca-release" content="">'
