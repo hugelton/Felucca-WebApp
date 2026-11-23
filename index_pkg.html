@@ -163,7 +163,7 @@ function applyLang() {
 }
 $("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
 applyLang();
-const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textContent = t(k) + arg; };
+const sayK = (k, arg = "") => { if (k === "done" && lastKey === k) return; lastKey = k; lastArg = arg; $("status").textContent = t(k) + arg; };
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const log = (t) => { $("log").textContent += t + "\n"; };
 let image = null, pkgBytes = null, flashSize = 0;
@@ -176,7 +176,7 @@ const vnum = (s) => (String(s).match(/\d+/g) || []).map(Number);
 const newer = (a, b) => { const x = vnum(a), y = vnum(b); for (let i = 0; i < 4; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return true; };
 
 let writing = false, stock = null, stockFileEpoch = 0;
-const lockInstaller = (on) => { writing = on; $("go").disabled = on || !image; $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; };
+const lockInstaller = (on) => { if (on) $("bar").value = 0; writing = on; $("go").disabled = on || !image; $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; };
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
 
 (async () => {
@@ -210,7 +210,7 @@ $("go").addEventListener("click", async () => {
       if (k === "start") sayK("start");
       if (k === "verify") { sayK("verify"); $("bar").value = (Math.min(a, 74) / (74 + writes)) * 100; }
       if (k === "loader") sayK("loader");
-      if (k === "write") { wrote = true; writes = Math.max(writes, a); sayK("write"); $("bar").value = ((74 + a) / (74 + writes)) * 100; }
+      if (k === "write") { wrote = true; writes = Math.max(writes, a); sayK("write"); $("bar").value = Math.min(99, ((74 + a) / (74 + writes)) * 100); }
       if (k === "reboot") sayK("reboot");
       if (k === "done") { $("bar").value = 100; sayK("done"); }
     };
@@ -223,7 +223,7 @@ $("go").addEventListener("click", async () => {
       await up.install(image, meta.product, step);
     }
   } catch (e) {
-    if (wrote && !(e && e.code && ["noreturn", "mismatch"].includes(e.code))) { sayK("inupdate"); log(String(e && e.stack || e)); lockInstaller(false); return; }
+    if (wrote && !["noreturn", "mismatch", "ambiguous", "foreign", "lost"].includes(e?.code)) { sayK("inupdate"); log(String(e && e.stack || e)); lockInstaller(false); return; }
     if (e && e.code && TEXT[lang][e.code]) sayK(e.code, e.detail || "");
     else sayK("error", e && e.message);
     log(String(e && e.stack || e));

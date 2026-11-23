@@ -156,7 +156,10 @@ export class Updater {
       if (!r) continue;
       last = Date.now();
       if (r.addr === 0xE0000000 || r.addr === 0xF0000000) {
-        link.send(response(r.addr, [...new TextEncoder().encode("success"), 0]));
+        if (!link.send(response(r.addr, [...new TextEncoder().encode("success"), 0]))) {
+          link.close();
+          throw fail("lost", "The connection to the FM-1 was lost during the write.");
+        }
         if (r.addr === finishAddr) return { served, finished: true };
         continue;
       }
@@ -210,6 +213,7 @@ export class Updater {
 
   // resume: the device is already in update mode (loader) -> true when the write finished
   async resume(image, onStep, product = null) {
+    if (!/^FM-1_\d{3}$/.test(product || "")) throw fail("badpkg", "The expected FM-1 product is required.");
     const model = product && product.split("_")[0];
     const ota = await this.find((id) => model ? id.model === "ota-" + model : IS_OTA(id));
     if (!ota) return false;

@@ -1793,10 +1793,34 @@ async function updater() {
   ok(got === "FM-1_900" && dev.bad === 0 && steps.includes("write") && steps.at(-1) === "done",
     `fm1ota.js: install stock -> loader -> Felucca (${dev.served} reads)`);
 
+  const missing = new FakeFM1(image);
+  missing.boot("ota-FM-1_900", "Felucca Update");
+  const sent = [];
+  const sendMissing = missing.output.send;
+  missing.output.send = (packet) => {
+    sent.push(Array.from(packet));
+    sendMissing(packet);
+  };
+  const badMetadata = await new Updater(missing.access).resume(image).then(() => null, (e) => e);
+  ok(badMetadata?.code === "badpkg" && sent.length === 0,
+    "fm1ota.js: resume requires the expected product before writing");
+
+  const ack = new FakeFM1(image);
+  ack.boot("ota-FM-1_900", "Felucca Update");
+  const send = ack.output.send;
+  ack.output.send = (packet) => {
+    if (ack.waiting?.[0] === 0xF0000000) throw new Error("finish acknowledgment failed");
+    send(packet);
+  };
+  const ackSteps = [];
+  const lost = await new Updater(ack.access).resume(image, (step) => ackSteps.push(step), "FM-1_900").then(() => null, (e) => e);
+  ok(lost?.code === "lost" && !ack.input.onmidimessage && !ackSteps.includes("reboot") && !ackSteps.includes("done"),
+    "fm1ota.js: a failed finish acknowledgment aborts before reboot verification");
+
   const dev2 = new FakeFM1(image, { unplugAfter: 3 });
   dev2.boot("ota-FM-1_900", "Felucca Update");
   const t0 = Date.now();
-  const done = await new Updater(dev2.access).resume(image);
+  const done = await new Updater(dev2.access).resume(image, null, "FM-1_900");
   ok(done === false && Date.now() - t0 < 6000, "fm1ota.js: unplugged during the write -> stops at once");
 
   const dev3 = new FakeFM1(image, { unplugAfter: 2 });
