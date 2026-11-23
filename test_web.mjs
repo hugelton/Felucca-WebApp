@@ -1346,7 +1346,7 @@ async function editorCustomPalette() {
   const set = async (op, c) => E.parse[C.PALETTE_SET](await rq(E.req.paletteSet(op, c)));
   let g = await get();
   ok(!g.stored && !g.active && g.n === 5 && g.c.length === 5 && g.c[0] === E.PAL_BUILTIN[0].c[0], "CUSTOM palette: GET: none stored, the palette in use to start from");
-  const good = [rgb(8, 16, 40), rgb(24, 32, 64), rgb(240, 240, 255), rgb(120, 200, 255), rgb(255, 160, 40)];
+  const good = [rgb(8, 16, 40), rgb(120, 200, 255), rgb(240, 240, 255), rgb(255, 72, 72), rgb(255, 160, 40)];   /* BG THEME TEXT REC ACCENT (1.8) */
   const flat = [rgb(80, 80, 80), rgb(90, 90, 90), rgb(100, 100, 100), rgb(110, 110, 110), rgb(120, 120, 120)];
   ok(!E.palReadable(flat) && E.palReadable(good), "CUSTOM palette: the editor's rule: flat greys are hard to read, the good set is not");
   ok(E.PAL_BUILTIN.length === 10 && E.PAL_BUILTIN.every((p) => E.palReadable(p.c)), "CUSTOM palette: every built-in palette passes the rule");

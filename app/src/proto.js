@@ -1340,22 +1340,47 @@ const midiLearn = {
   clear: async (rq, cc) => parse[CMD.LEARN_SET](await rq(cc === undefined ? req.learnClearAll() : req.learnClear(cc))),
 };
 
-/* CUSTOM palette (1.6, EDITOR_PROTOCOL.md "CUSTOM palette"; firmware with info.customPalette): five RGB565 colours, BG SURF
-   TEXT THEME ACCENT. The lightness the device judges them by (gfx.c ux_luma) and its rule (favorites.c cpal_ok): TEXT against
-   BG at least 128 apart, TEXT against SURF 96, THEME against BG 80, ACCENT against BG 64 -> the pairs that fail. The
-   built-in palettes' five colours are a place to start from (tools/gen_ui_palettes.py) */
-const PAL_ROLES = ["BG", "SURF", "TEXT", "THEME", "ACCENT"];
+/* CUSTOM palette (EDITOR_PROTOCOL.md "CUSTOM palette"; firmware with info.customPalette): five RGB565 colours as a palette
+   stores them since 1.8: color1 BG, color2 THEME, color3 TEXT, primary REC, secondary ACCENT (gfx.c palette_set; the card
+   colour SURF is BG + 12 % of THEME). 1.6 and 1.7 take BG SURF TEXT THEME ACCENT instead: palToOld / palFromOld (device.js,
+   palOldLayout). The lightness the device judges them by (gfx.c ux_luma) and the editor's rule: TEXT against BG at least
+   128 apart, TEXT against SURF 96, THEME against BG 80, ACCENT against BG 64 -> the pairs that fail. The built-in
+   palettes' five colours (tools/gen_ui_palettes.py, UI_PALETTES) are a place to start from (#334: they and the order were
+   still 1.6's) */
+const PAL_ROLES = ["BG", "THEME", "TEXT", "REC", "ACCENT"];
 const PAL_BUILTIN = [
-  ["GREY", 0x0841, 0x2104, 0xce59, 0xef5d, 0xffdf], ["GREEN", 0x0081, 0x1143, 0xe7bc, 0x56af, 0xfeab],
-  ["AMBER", 0x1061, 0x2902, 0xf77b, 0xfd45, 0x66bc], ["ICE", 0x0883, 0x1126, 0xe79f, 0x55dd, 0xfc6c],
-  ["VIOLET", 0x1063, 0x20e7, 0xf75f, 0xb45e, 0x6f35], ["ROSE", 0x1842, 0x30a5, 0xff5e, 0xf396, 0xfead],
-  ["PAPER", 0xf77c, 0xe6d9, 0x20e3, 0x0aa8, 0xa9c1], ["HI-CON", 0x0000, 0x2945, 0xffdf, 0xff40, 0x073f],
-  ["NIGHT", 0x0000, 0x00c1, 0x9735, 0x3eec, 0xffdf], ["MONO", 0x0000, 0x0000, 0xffff, 0xffff, 0xffff],
+  ["GREY", 0x0841, 0xb596, 0xef5d, 0xfa49, 0x4c7f], ["GREEN", 0x0081, 0x56af, 0xe7bc, 0xfa49, 0xfeab],
+  ["AMBER", 0x1061, 0xfd45, 0xf77b, 0xfa49, 0x66bc], ["ICE", 0x0883, 0x55dd, 0xe79f, 0xfa49, 0xfc6c],
+  ["VIOLET", 0x1063, 0xb45e, 0xf75f, 0xfa49, 0x6f35], ["ROSE", 0x1842, 0xf396, 0xff5e, 0xfa49, 0xfead],
+  ["PAPER", 0xf77c, 0x0aa8, 0x20e3, 0xb8c5, 0xa9c1], ["HI-CON", 0x0000, 0xff40, 0xffdf, 0xfa49, 0x073f],
+  ["NIGHT", 0x0000, 0x3eec, 0x9735, 0xfa49, 0xffdf], ["MONO", 0x0000, 0xffff, 0xffff, 0xfa49, 0x4c7f],
 ].map(([name, ...c]) => ({ name, c }));
+const PAL_REC_DARK = 0xfa49, PAL_REC_LIGHT = 0xb8c5, PAL_SURF_PCT = 12;
 const palLuma = (c) => (Math.trunc((c >> 11) * 255 / 31) * 54 + Math.trunc(((c >> 5) & 63) * 255 / 63) * 183 + Math.trunc((c & 31) * 255 / 31) * 19) >> 8;
-const PAL_RULE = [["TEXT", 2, "BG", 0, 128], ["TEXT", 2, "SURF", 1, 96], ["THEME", 3, "BG", 0, 80], ["ACCENT", 4, "BG", 0, 64]];
-const palUnreadable = (c) => PAL_RULE.filter(([, a, , b, min]) => Math.abs(palLuma(c[a]) - palLuma(c[b])) < min).map(([x, , y, , min]) => ({ a: x, b: y, min }));
+/* gfx.c ux_mix: a + (b - a) * pct / 100 per channel, rounded half away from zero (C's integer division truncates) */
+const palMix = (a, b, pct) => {
+  let out = 0;
+  for (const [sh, mk] of [[11, 31], [5, 63], [0, 31]]) {
+    const x = (a >> sh) & mk, d = (((b >> sh) & mk) - x) * pct;
+    out |= (x + Math.trunc((d + (d >= 0 ? 50 : -50)) / 100)) << sh;
+  }
+  return out & 0xFFFF;
+};
+const palSurf = (c) => palMix(c[0], c[1], PAL_SURF_PCT);
+/* [name, index (-1: SURF, derived), name, index, the least difference] */
+const PAL_RULE = [["TEXT", 2, "BG", 0, 128], ["TEXT", 2, "SURF", -1, 96], ["THEME", 1, "BG", 0, 80], ["ACCENT", 4, "BG", 0, 64]];
+const palAt = (c, i) => (i < 0 ? palSurf(c) : c[i]);
+const palUnreadable = (c) => PAL_RULE.filter(([, a, , b, min]) => Math.abs(palLuma(palAt(c, a)) - palLuma(palAt(c, b))) < min).map(([x, , y, , min]) => ({ a: x, b: y, min }));
 const palReadable = (c) => palUnreadable(c).length === 0;
+/* 1.6 and 1.7 (BG SURF TEXT THEME ACCENT) <-> 1.8's five; from the old ones, REC is the device's own red for the BG (as
+   favorites.c cpal_fix reads a 1.6 CUSTOM) */
+const palToOld = (c) => [c[0], palSurf(c), c[2], c[1], c[4]];
+const palFromOld = (c) => [c[0], c[3], c[2], palLuma(c[0]) > 128 ? PAL_REC_LIGHT : PAL_REC_DARK, c[4]];
+/* the device's version takes the old order: 1.6 and 1.7 (CUSTOM came with 1.6; the five changed in 1.8.0) */
+const palOldLayout = (version) => {
+  const m = /(\d+)\.(\d+)/.exec(String(version || ""));
+  return !!m && +m[1] === 1 && (+m[2] === 6 || +m[2] === 7);
+};
 
 /* ----------------------------------------------------------------- DIGITAL --- */
 /* DIGITAL (engine 1, four-operator FM) was replaced by FM6 (1.0): the firmware keeps engine 1 reserved (its name
@@ -2609,6 +2634,6 @@ export {
   parseWav, resample, pyRound, normalize, FADE, takeSample, zoomView, autoTrim, rootFromName, buildSlot,
   LIB, paramKeys, sameKeys, remapParams, tailParams, patNorm, patternFromSteps, stepsFromPattern, patternUsed, gridFromSteps,
   cleanPatch, libraryFile, readLibraryFile, FLASH_OPT, bank, capturePatch, TRACK_OWN, P_CHORD, P_LANES, trackOwn, auditionPatch,
-  startWatch, mixer, FM6, fm6Bank, midiLearn, PAL_ROLES, PAL_BUILTIN, palLuma, PAL_RULE, palUnreadable, palReadable, FM4, CATEGORIES, STEP_CONDS, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice, parseMotionAll,
+  startWatch, mixer, FM6, fm6Bank, midiLearn, PAL_ROLES, PAL_BUILTIN, palLuma, palMix, palSurf, PAL_RULE, palUnreadable, palReadable, palToOld, palFromOld, palOldLayout, FM4, CATEGORIES, STEP_CONDS, fromDigital, reservedFm4, PERC_SET, fromPerc, engineLabel, makeMockDevice, parseMotionAll,
   readDevicePreferences, aliasOf, divLength, enumShown, ENGINE_ORDER, engineOrder, devicePresetRows, MENU, MENU_TABS, readDeviceMenu,
 };

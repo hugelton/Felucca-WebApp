@@ -2,11 +2,11 @@
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 //
 // CUSTOM, the user's palette (1.6, EDITOR_PROTOCOL.md "CUSTOM palette"): the tokens the device derives from the five
-// colours a palette stores (BG SURF TEXT THEME ACCENT, RGB565), and the colour conversions of the page. A port of
+// colours a palette stores (1.8: BG THEME TEXT REC ACCENT, RGB565), and the colour conversions of the page. A port of
 // felucca/src/gfx.c (ux_mix, palette_set): the editor shows what the device will draw. The rule for colours that are
 // readable and the built-in palettes are in proto.js (the protocol section: the mock device keeps the same rule).
 
-import { PAL_BUILTIN, PAL_ROLES, PAL_RULE, palLuma, palReadable, palUnreadable } from "./proto.js";
+import { PAL_BUILTIN, PAL_ROLES, PAL_RULE, palLuma, palMix, palReadable, palSurf, palUnreadable } from "./proto.js";
 
 export const ROLES = PAL_ROLES;
 export const BUILTIN = PAL_BUILTIN;
@@ -27,27 +27,18 @@ export const fromHex = (s) => {
 };
 
 const PCT = { mid: 70, dim: 42, line: 18, sel: 80, tint: 12, key: 78, raise: 12 };   /* UI_*_PCT */
-const REC_DARK = 0xfa49, REC_LIGHT = 0xb8c5;
-const SH = [11, 5, 0], MK = [31, 63, 31];
 
-/* a + (b - a) * pct / 100 per channel, rounded half away from zero (C's integer division truncates) */
-export function mix(a, b, pct) {
-  let out = 0;
-  for (let k = 0; k < 3; k++) {
-    const x = (a >> SH[k]) & MK[k], d = (((b >> SH[k]) & MK[k]) - x) * pct;
-    out |= (x + Math.trunc((d + (d >= 0 ? 50 : -50)) / 100)) << SH[k];
-  }
-  return out & 0xFFFF;
-}
+/* a + (b - a) * pct / 100 per channel, rounded half away from zero (gfx.c ux_mix) */
+export const mix = palMix;
 
 /* the tokens of a CUSTOM palette in the FLAT style (gfx.c palette_set: not GREY, not MONO) */
 export function derive(c) {
-  const [bg, surf, text, theme, accent] = c, light = palLuma(bg) > 128;
+  const [bg, theme, text, rec, accent] = c, surf = palSurf(c), light = palLuma(bg) > 128;
   return {
-    bg, surf, text, theme, accent,
+    bg, surf, text, theme, accent, rec,
     mid: mix(bg, text, PCT.mid), dim: mix(bg, text, PCT.dim), line: mix(bg, text, PCT.line),
     sel: mix(bg, theme, PCT.sel), tint: mix(bg, theme, PCT.tint), ink: bg,
     raise: mix(surf, text, PCT.raise), key: mix(bg, text, PCT.key),
-    lane: mix(surf, theme, 10), grid: mix(surf, text, 6), rec: light ? REC_LIGHT : REC_DARK, light,
+    lane: mix(surf, theme, 10), grid: mix(surf, text, 6), light,
   };
 }

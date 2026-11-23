@@ -165,29 +165,44 @@ const until = async (cond, ms = 2000) => { const t = Date.now(); while (!cond() 
     await dd.open();
     await dd.readMenu();
     ok(dd.info.customPalette === 5 && dd.palette && !dd.palette.stored && dd.palette.c.length === 5, "1.6: CUSTOM palette read (none stored, five colours to start from)");
-    const good = [pal.rgb565(8, 16, 40), pal.rgb565(24, 32, 64), pal.rgb565(240, 240, 255), pal.rgb565(120, 200, 255), pal.rgb565(255, 160, 40)];
+    const good = [pal.rgb565(8, 16, 40), pal.rgb565(120, 200, 255), pal.rgb565(240, 240, 255), pal.rgb565(255, 72, 72), pal.rgb565(255, 160, 40)];   /* BG THEME TEXT REC ACCENT (1.8) */
     ok(await dd.paletteSet(0, good) === 0 && !dd.palette.stored, "1.6: a preview (op 0) stores nothing");
     ok(await dd.paletteSet(1, [0x0841, 0x2104, 0x2105, 0x2106, 0x2107]) === 0 && dd.palette.stored && !pal.readable([0x0841, 0x2104, 0x2105, 0x2106, 0x2107]), "1.6: colours hard to read: stored all the same (the editor warns)");
     ok(await dd.paletteSet(1, good) === 0 && dd.palette.stored && dd.palette.active && dd.palette.c.join() === good.join(), "1.6: stored (op 1): in use, the five colours back");
     ok(dd.preferences.palettes.length === 11 && dd.preferences.palettes[10] === "CUSTOM" && dd.preferences.state.palette === 10, "1.6: the theme list follows: CUSTOM last, in use");
     ok(await dd.paletteSet(2) === 0 && !dd.palette.stored && dd.preferences.palettes.length === 10 && dd.preferences.state.palette < 10, "1.6: removed (op 2): ten palettes again");
     ok(await dd.paletteSet(3) === 0, "1.6: a preview dropped (op 3)");
-    const SNAP = [
-  {"c":[2113,8452,52825,61277,65503],"t":{"mid":38034,"dim":23243,"line":10597,"sel":48631,"tint":8484,"ink":2113,"rec":64073,"raise":14759,"key":42228,"lane":14759,"grid":10597,"light":0}},
-  {"c":[129,4419,59324,22191,65195],"t":{"mid":42388,"dim":25484,"line":10694,"sel":17772,"tint":2371,"ink":129,"rec":64073,"raise":10758,"key":46614,"lane":6596,"grid":8613,"light":0}},
-  {"c":[63356,59097,8419,2728,43457],"t":{"mid":25322,"dim":40113,"line":52823,"sel":15276,"tint":57050,"ink":63356,"rec":47301,"raise":52758,"key":21064,"lane":52855,"grid":56952,"light":1}},
-  {"c":[0,10565,65503,65344,1855],"t":{"mid":46454,"dim":27469,"line":12646,"sel":52672,"tint":8416,"ink":0,"rec":64073,"raise":16904,"key":50712,"lane":16868,"grid":14759,"light":0}},
-  {"c":[0,193,38709,16108,65503],"t":{"mid":27919,"dim":17161,"line":6468,"sel":13706,"tint":2273,"ink":0,"rec":64073,"raise":4483,"key":30096,"lane":2402,"grid":2338,"light":0}},
-  {"c":[0,0,65535,65535,65535],"t":{"mid":46486,"dim":27469,"line":12646,"sel":52825,"tint":8452,"ink":0,"rec":64073,"raise":8452,"key":50744,"lane":6339,"grid":4226,"light":0}},
-  {"c":[65535,65535,0,0,0],"t":{"mid":19049,"dim":38066,"line":52889,"sel":12710,"tint":57083,"ink":65535,"rec":47301,"raise":57083,"key":14791,"lane":59196,"grid":61309,"light":1}},
-  {"c":[4660,22136,43981,61185,9029],"t":{"mid":31567,"dim":21201,"line":10867,"sel":50693,"tint":10962,"ink":4660,"rec":64073,"raise":24087,"key":35695,"lane":26262,"grid":24151,"light":0}},
-  {"c":[2016,31,63488,65504,2047],"t":{"mid":45664,"dim":27808,"line":13952,"sel":53216,"tint":10208,"ink":2016,"rec":47301,"raise":8219,"key":49600,"lane":6364,"grid":4125,"light":1}}];
+    /* #334: 1.6 and 1.7 take BG SURF TEXT THEME ACCENT; the editor converts both ways (device.js palIn, proto.js palToOld) */
+    {
+      const v = dd.info.version;
+      dd.info.version = "FELUCCA v1.7.0";
+      ok(await dd.paletteSet(1, good) === 0 && dd.palette.stored, "1.7: stored through the old order");
+      dd.info.version = v;
+      const raw = (await dd.readPalette()).c;
+      ok(raw[0] === good[0] && raw[1] === proto.palSurf(good) && raw[2] === good[2] && raw[3] === good[1] && raw[4] === good[4], "1.7: sent as BG SURF TEXT THEME ACCENT (SURF the device's blend)");
+      dd.info.version = "FELUCCA v1.7.0";
+      const back = (await dd.readPalette()).c;
+      ok(back[0] === good[0] && back[1] === good[1] && back[2] === good[2] && back[3] === 0xfa49 && back[4] === good[4], "1.7: read back in 1.8's order (REC: the device's red for a dark BG)");
+      dd.info.version = v;
+      ok(!proto.palOldLayout("FELUCCA v1.8.3") && !proto.palOldLayout("FELUCCA v1.0 (MOCK)") && proto.palOldLayout("FELUCCA v1.6.1") && proto.palOldLayout("FELUCCA v1.7.0"), "palOldLayout: 1.6 and 1.7 only");
+      await dd.paletteSet(2);
+    }
+    const SNAP = [   /* felucca 1.8.3 gfx.c palette_set (CUSTOM, FLAT): the five in (BG THEME TEXT REC ACCENT), the tokens out */
+  {"c":[2113,46486,61277,64073,19583],"t":{"surf":8420,"mid":44341,"dim":27469,"line":12678,"sel":38034,"tint":8420,"ink":2113,"rec":64073,"raise":14759,"key":48599,"lane":12646,"grid":12614,"light":0}},
+  {"c":[129,22191,59324,64073,65195],"t":{"surf":2371,"mid":42388,"dim":25484,"line":10694,"sel":17772,"tint":2371,"ink":129,"rec":64073,"raise":8710,"key":46614,"lane":4548,"grid":6565,"light":0}},
+  {"c":[63356,2728,8419,47301,43457],"t":{"surf":57050,"mid":25322,"dim":40113,"line":52823,"sel":15276,"tint":57050,"ink":63356,"rec":47301,"raise":50711,"key":21064,"lane":50808,"grid":54905,"light":1}},
+  {"c":[0,65344,65503,64073,1855],"t":{"surf":8416,"mid":46454,"dim":27469,"line":12646,"sel":52672,"tint":8416,"ink":0,"rec":64073,"raise":14788,"key":50712,"lane":14720,"grid":12610,"light":0}},
+  {"c":[0,16108,38709,64073,65503],"t":{"surf":2273,"mid":27919,"dim":17161,"line":6468,"sel":13706,"tint":2273,"ink":0,"rec":64073,"raise":6563,"key":30096,"lane":4482,"grid":4418,"light":0}},
+  {"c":[0,65535,65535,64073,19583],"t":{"surf":8452,"mid":46486,"dim":27469,"line":12646,"sel":52825,"tint":8452,"ink":0,"rec":64073,"raise":14823,"key":50744,"lane":14791,"grid":12646,"light":0}},
+  {"c":[65535,0,0,47301,0],"t":{"surf":57083,"mid":19049,"dim":38066,"line":52889,"sel":12710,"tint":57083,"ink":65535,"rec":47301,"raise":50712,"key":14791,"lane":50744,"grid":52889,"light":1}},
+  {"c":[4660,22136,43981,61185,9029],"t":{"surf":6836,"mid":31567,"dim":21201,"line":10867,"sel":17815,"tint":6836,"ink":4660,"rec":61185,"raise":10963,"key":35695,"lane":8980,"grid":8916,"light":0}},
+  {"c":[2016,31,63488,65504,2047],"t":{"surf":1764,"mid":45664,"dim":27808,"line":13952,"sel":441,"tint":1764,"ink":2016,"rec":65504,"raise":9732,"key":49600,"lane":1575,"grid":5764,"light":1}}];
     let diff = 0;
     for (const x of SNAP) {
       const t = pal.derive(x.c);
       for (const [k, v] of Object.entries(x.t)) if ((k === "light" ? +t.light : t[k]) !== v) diff++;
     }
-    ok(diff === 0, `1.6: palette.js derives the firmware's tokens (${SNAP.length} palettes, ${SNAP.length * 12} values)`);
+    ok(diff === 0, `1.8: palette.js derives the firmware's tokens (${SNAP.length} palettes, ${SNAP.length * 13} values)`);
     ok(pal.hex(0xffff) === "#ffffff" && pal.fromHex("#ffffff") === 0xffff && pal.fromBytes(...pal.bytes(0xce59)) === 0xce59 && pal.readable(pal.BUILTIN[6].c), "1.6: colour conversions, the readable rule");
     dd.close(); dp.stop();
   }

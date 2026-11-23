@@ -7,7 +7,7 @@
 // The behaviour is editor.html's (connect, load, onPush, keepAlive, the 400 ms poll, selfLoad), moved here.
 
 import { captureBackup, captureObject, conditionalProjects, projectFile, putObject, readBackup, readProject, restoreBackup } from "../../fm1backup.js";
-import { CMD, F, FLASH_OPT, FM6, fm6Bank, midiLearn, Link, parseMotionAll, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, parse, paramKeys, readDeviceMenu, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
+import { CMD, F, FLASH_OPT, FM6, fm6Bank, midiLearn, Link, parseMotionAll, P_CHORD, SMP, auditionPatch, bank, capturePatch, fromDigital, mixer, palFromOld, palOldLayout, palToOld, parse, paramKeys, readDeviceMenu, readDevicePreferences, req, reservedFm4, startWatch, upName } from "./proto.js";
 
 export const isFelucca = (p) => /felucca/i.test(p.name || "") && p.state !== "disconnected";
 export const P = { LEVEL: 0, SLEN: 29 };
@@ -550,15 +550,18 @@ export class Device {
      {stored, active, c: [RGB565 x 5]} (not pushed: read when settings show and after each change) */
   async readPalette() {
     if (!this.info.customPalette) { this.palette = null; return null; }
-    try { this.palette = parse[CMD.PALETTE_GET](await this.rq(req.paletteGet())); } catch (e) { if (e.message === "closed") throw e; this.palette = null; }
+    try { this.palette = this.palIn(parse[CMD.PALETTE_GET](await this.rq(req.paletteGet()))); } catch (e) { if (e.message === "closed") throw e; this.palette = null; }
     this.emit("palette", this.palette);
     return this.palette;
   }
   /* op 0 show c on the device (RAM only), 1 store c and use it, 2 remove it, 3 drop the preview -> rc (0 saved, 1 refused,
      3 not saved, 4 saved at STOP; any colours are taken: the editor warns); a stored or removed palette changes COLOR's values: the lists follow */
+  /* the five in the editor's order (1.8's: BG THEME TEXT REC ACCENT); 1.6 and 1.7 send and take BG SURF TEXT THEME ACCENT (#334) */
+  palIn(r) { return palOldLayout(this.info.version) && r.c.length === 5 ? { ...r, c: palFromOld(r.c) } : r; }
   paletteSet(op, c) {
     return this.op(async () => {
-      const r = parse[CMD.PALETTE_SET](await this.rq(req.paletteSet(op, c), op === 1 || op === 2 ? FLASH_OPT : undefined));
+      const out = c && palOldLayout(this.info.version) ? palToOld(c) : c;
+      const r = this.palIn(parse[CMD.PALETTE_SET](await this.rq(req.paletteSet(op, out), op === 1 || op === 2 ? FLASH_OPT : undefined)));
       this.palette = { stored: r.stored, active: r.active, n: r.n, c: r.c };      /* (no event: the card is not rebuilt while a colour is dragged) */
       if ((op === 1 || op === 2) && (r.rc === 0 || r.rc === 3 || r.rc === 4)) await this.syncPreferences(true);
       return r.rc;

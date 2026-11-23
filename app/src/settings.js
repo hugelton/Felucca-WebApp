@@ -126,7 +126,7 @@ export function settingsScreen(root, ui) {
     return c;
   }
 
-  /* CUSTOM, the user's palette (1.6, INFO 45 01 5): five colours (BG SURF TEXT THEME ACCENT), shown on the device as they
+  /* CUSTOM, the user's palette (1.6, INFO 45 01 5): five colours (1.8: BG THEME TEXT REC ACCENT), shown on the device as they
      change (op 0: RAM only), stored with SAVE (op 1: the palette in use from then on, saved with the settings), gone with
      REMOVE. The sample is what the device derives from them (palette.js, the port of gfx.c); colours that are hard to read (the
      rule in proto.js) get a warning, nothing more: they are shown and saved as chosen (REMOVE and COLOR are the way back) */
